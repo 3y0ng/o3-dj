@@ -35,12 +35,18 @@
         </div>
 
         <div class="scr-main">
-          <svg class="reels" id="reels" viewBox="0 0 120 70" aria-hidden="true">
-            <line x1="22" y1="58" x2="98" y2="58" class="tape"/>
-            <g class="reel r1"><circle cx="30" cy="32" r="24" class="reel-ring c-blue-s"/><circle cx="30" cy="32" r="6" class="hub"/>
-              <path d="M30 14v8M30 42v8M14 32h8M38 32h8" class="spoke c-blue-s"/></g>
-            <g class="reel r2"><circle cx="90" cy="32" r="18" class="reel-ring c-orange-s"/><circle cx="90" cy="32" r="5" class="hub"/>
-              <path d="M90 19v7M90 38v7M77 32h7M96 32h7" class="spoke c-orange-s"/></g>
+          <!-- tape: the left pack unwinds onto the right one as the song plays -->
+          <svg class="reels" id="reels" viewBox="0 0 120 74" aria-hidden="true">
+            <circle cx="27" cy="28" r="16" class="pack" id="pack-l"/>
+            <circle cx="93" cy="28" r="9" class="pack" id="pack-r"/>
+            <path id="tape" class="tape" d=""/>
+            <circle cx="16" cy="64" r="2.4" class="guide"/>
+            <circle cx="104" cy="64" r="2.4" class="guide"/>
+            <rect x="55" y="66.2" width="10" height="5" rx="1" class="head"/>
+            <g class="reel r1"><circle cx="27" cy="28" r="23" class="reel-ring c-blue-s"/><circle cx="27" cy="28" r="5.5" class="hub"/>
+              <path d="M27 9.5v8M27 38.5v8M8.5 28h8M37.5 28h8" class="spoke c-blue-s"/></g>
+            <g class="reel r2"><circle cx="93" cy="28" r="23" class="reel-ring c-orange-s"/><circle cx="93" cy="28" r="5.5" class="hub"/>
+              <path d="M93 9.5v8M93 38.5v8M74.5 28h8M103.5 28h8" class="spoke c-orange-s"/></g>
           </svg>
 
           <div class="np">

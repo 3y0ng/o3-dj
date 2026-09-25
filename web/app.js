@@ -195,6 +195,7 @@ function render(s, local = false) {
   const playing = s.running && !s.paused && st.state === "PLAYING";
 
   $("#screen").classList.toggle("playing", playing);
+  drawTape(s.running && st.duration ? Math.min(1, (st.elapsed || 0) / st.duration) : s.running ? 0.5 : 0);
   $("#led-power").className = "led" + (playing ? " on" : s.running ? " on green" : "");
   $("#mode-tag").textContent = s.live ? "live" : "mock";
 
@@ -206,7 +207,8 @@ function render(s, local = false) {
   const src = $("#s-src");
   src.textContent = s.health.source_online ? "src ok" : "offline·cache";
   src.className = "pill " + (s.health.source_online ? "c-green" : "c-red");
-  $("#s-cache").textContent = `cache ${s.cache.files} · bpm ${s.cache.analysed}/${s.cache.tracks}`;
+  $("#s-cache").textContent = `${s.cache.files} cached`;
+  $("#s-cache").title = `${s.cache.files} tracks cached (${s.cache.mb} MB) · tempo analysed ${s.cache.analysed}/${s.cache.tracks}`;
 
   // now playing
   const n = s.now;
@@ -331,6 +333,28 @@ function renderStrip(s) {
     log.dataset.sig = lsig;
     log.innerHTML = s.events.map((e) => `<li><b>${e.t}</b>${esc(e.msg)}</li>`).join("");
   }
+}
+
+// ── tape reels: left pack unwinds onto the right as the track plays ──────────
+const REEL = { l: [27, 28], r: [93, 28], guideL: [16, 64], guideR: [104, 64], gr: 2.4, core: 6.5, full: 20 };
+function packRadius(fraction) {  // tape area is conserved, so radius goes with sqrt
+  return Math.sqrt(REEL.core ** 2 + (REEL.full ** 2 - REEL.core ** 2) * fraction);
+}
+function tangent([cx, cy], r, [px, py], outer) {  // point where tape leaves the pack toward a guide
+  const d = Math.hypot(px - cx, py - cy), a = Math.atan2(py - cy, px - cx), b = Math.acos(Math.min(1, r / d));
+  const t = a + (outer === "left" ? b : -b);
+  return [cx + r * Math.cos(t), cy + r * Math.sin(t)];
+}
+function drawTape(progress) {
+  const rl = packRadius(1 - progress), rr = packRadius(progress);
+  $("#pack-l").setAttribute("r", rl.toFixed(2));
+  $("#pack-r").setAttribute("r", rr.toFixed(2));
+  const [gx1, gy] = REEL.guideL, [gx2] = REEL.guideR, low = gy + REEL.gr;
+  const a = tangent(REEL.l, rl, [gx1 - REEL.gr, gy], "left");
+  const b = tangent(REEL.r, rr, [gx2 + REEL.gr, gy], "right");
+  const f = (p) => p.map((v) => v.toFixed(2)).join(" ");
+  $("#tape").setAttribute("d",
+    `M${f(a)} L${f([gx1 - REEL.gr, gy])} A${REEL.gr} ${REEL.gr} 0 0 0 ${f([gx1, low])} L${f([gx2, low])} A${REEL.gr} ${REEL.gr} 0 0 0 ${f([gx2 + REEL.gr, gy])} L${f(b)}`);
 }
 
 // ── utils ──────────────────────────────────────────────────────────────
