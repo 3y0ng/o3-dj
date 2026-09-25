@@ -27,6 +27,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+button, .enc, .room { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 body {
   min-height: 100vh;
   background:
@@ -144,7 +146,7 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .head { fill: var(--orange); }
 
 .np { min-width: 0; display: flex; flex-direction: column; gap: 1.15cqw; }
-.np-state { font-size: 2.2cqw; letter-spacing: .14em; text-transform: uppercase; }
+.np-state { font-size: 2.2cqw; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-state.live { color: var(--green); }
 .np-title { font-size: 4.1cqw; line-height: 1.12; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-meta { font-size: 2.3cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: .8cqw; }
@@ -303,12 +305,42 @@ form .row { display: flex; gap: 7px; }
   .brand { display: none; }
 }
 @media (max-width: 720px) {
-  .stage { padding: 16px 12px 24px; }
+  .stage { padding: 16px max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+
+  /* Screen: on a phone, scaling text with width makes it unreadable, so use fixed minimum sizes
+     and let the screen grow taller instead of keeping the widescreen shape. */
+  .screen { aspect-ratio: auto; padding: 13px 14px 10px; row-gap: 10px; }
+  .scr-top { font-size: 11px; gap: 3px 8px; flex-wrap: wrap; }
+  .scr-top .spacer { display: none; }
+  .scr-top #s-src { margin-left: auto; }
+  .pill { font-size: 10px; padding: 1px 5px; border-radius: 4px; }
+  .scr-main { grid-template-columns: 34% minmax(0, 1fr); gap: 12px; }
+  .np { gap: 5px; }
+  .np-state { font-size: 10px; }
+  .np-title { font-size: 17px; }
+  .np-meta { font-size: 11px; margin-bottom: 3px; }
+  .meter { grid-template-columns: 26px minmax(0, 1fr) 46px; gap: 7px; font-size: 10.5px; }
+  .bar, .segs, .mix { height: 8px; }
+  .segs { gap: 2px; }
+  .bar .target { top: -5px; margin-left: -4px; border-left-width: 4px; border-right-width: 4px; border-top-width: 5px; }
+  .scr-bottom { font-size: 10.5px; padding-top: 7px; }
+  .pop-label { font-size: 11px; } .pop-val { font-size: 52px; } .pop-sub { font-size: 11px; }
+
+  /* Staff use it for play / skip / votes: put transport first, and let keys fill the row. */
+  .kgroup { width: 100%; }
+  .kgroup.transport { order: -1; }
+  .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .key { width: auto; }
+
+  form input, form select { font-size: 16px; }
+  .votes { gap: 8px; }
+  .votes button { width: 44px; height: 40px; font-size: 14px; }
+  .mini { padding: 10px 14px; font-size: 13px; }  /* below 16px iOS Safari zooms the page on focus */
   .device { grid-template-columns: minmax(0, 1fr); grid-template-areas: "screen" "enc" "keys" "rooms"; padding: 22px 16px 18px; gap: 18px; }
   .encoders { padding-top: 4px; }
   .enc .knob { width: 54px; height: 54px; } .enc .cap { width: 38px; height: 38px; }
   .keys { padding: 12px; gap: 14px; }
-  .key { width: 62px; height: 62px; }
+  .key { height: 64px; }
   .strip { grid-template-columns: 1fr; }
   .room { flex-basis: 45%; }
 }

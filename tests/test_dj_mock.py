@@ -308,3 +308,20 @@ def test_restart_does_not_adopt_when_something_else_is_playing(tmp_path):
     player.queue[player.index] = dict(player.queue[player.index], uri="x-sonos-vli:spotify")  # Spotify took over
     b = make_dj(tmp_path, player)
     assert not b.adopt() and not b.running
+
+
+def test_skip_mid_transition_does_not_cascade(dj, monkeypatch):
+    """Seen live: after a skip, Sonos briefly reports the new position with the old URI.
+    The DJ must not drop the starting track and then 'jump back' past it."""
+    started(dj)
+    first = dj.now_id
+    nxt, after = dj.upcoming[0], dj.upcoming[1]
+    dj.skip()
+    real_status = dj.player.status
+    stale = dict(real_status(), uri=dj.id_uri[first])  # new index, old URI
+    monkeypatch.setattr(dj.player, "status", lambda: dict(stale))
+    dj.tick(1)
+    monkeypatch.setattr(dj.player, "status", real_status)
+    dj.tick(2); dj.tick(3)
+    assert dj.now_id == nxt and dj.upcoming[0] == after
+    assert not any("jumped back" in e["msg"] for e in dj.events)

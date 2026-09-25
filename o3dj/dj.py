@@ -437,8 +437,11 @@ class DJ:
                 self.now_max_elapsed = max(self.now_max_elapsed, st["elapsed"])
                 self._count_play()
             return False
-        if cur in self.upcoming:
-            self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
+        already_played = cur in {h["id"] for h in list(self.history)[-60:]}
+        if cur in self.upcoming or not already_played:
+            # normal advance (or a DJ track we lost track of during a transition: still new music)
+            if cur in self.upcoming:
+                self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
             self._set_now(cur)
             self._count_play()
             if cur in self.skip_on_start:
@@ -449,7 +452,7 @@ class DJ:
                 self.player.next()
                 return True
             return False
-        # An earlier DJ track: the queue reset to the top, or someone tapped an old track.
+        # A DJ track that already played: the queue reset to the top, or someone tapped an old track.
         self.event(f"queue jumped back to {self.title(cur)} - carrying on with new music")
         self._jump_to_next_unplayed()
         return True
@@ -511,7 +514,11 @@ class DJ:
                     return
 
             remaining = st["queue_size"] - st["index"] - 1
-            if len(self.upcoming) > remaining:
+            # Only reconcile the upcoming list when the speaker's position and track agree.
+            # Mid-transition (e.g. right after a skip) Sonos can report the new position with
+            # the old track's URI; trimming then would drop the track that is just starting.
+            in_sync = state == "PLAYING" and cur == self.now_id
+            if in_sync and len(self.upcoming) > remaining:
                 self.upcoming = self.upcoming[len(self.upcoming) - max(remaining, 0):]
             if remaining < self.cfg["queue_ahead"]:
                 self._top_up(self.cfg["queue_ahead"] - remaining)

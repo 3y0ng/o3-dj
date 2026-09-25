@@ -102,15 +102,22 @@ function initEncoders() {
       cap.style.setProperty("--rot", rot + "deg");
       ENC[name].step(d);
     };
-    el.addEventListener("pointerdown", (e) => { dragging = true; lastY = e.clientY; acc = 0; el.setPointerCapture(e.pointerId); el.focus(); });
+    let moved = 0, lastTap = 0;
+    el.addEventListener("pointerdown", (e) => { dragging = true; moved = 0; lastY = e.clientY; acc = 0; el.setPointerCapture(e.pointerId); el.focus({ preventScroll: true }); });
     el.addEventListener("pointermove", (e) => {
       if (!dragging) return;
-      acc += lastY - e.clientY; lastY = e.clientY;
+      acc += lastY - e.clientY; moved += Math.abs(lastY - e.clientY); lastY = e.clientY;
       const steps = Math.trunc(acc / 7);
       if (steps) { acc -= steps * 7; turn(steps); }
     });
     const end = () => { dragging = false; };
-    el.addEventListener("pointerup", end);
+    el.addEventListener("pointerup", (e) => {
+      end();
+      // touch has no dblclick: a double tap (without turning) resets the knob
+      if (e.pointerType === "touch" && moved < 6) {
+        if (e.timeStamp - lastTap < 350) { resetEncoder(name); lastTap = 0; } else lastTap = e.timeStamp;
+      }
+    });
     el.addEventListener("pointercancel", end);
     let wheelAcc = 0;
     el.addEventListener("wheel", (e) => {
@@ -123,12 +130,15 @@ function initEncoders() {
       const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
       if (d) { e.preventDefault(); turn(d * (e.shiftKey ? 5 : 1)); }
     });
-    el.addEventListener("dblclick", () => {
-      if (name === "time") setInputs({ hour_override: null }, 0);
-      if (name === "energy") setInputs({ energy_trim: 0 }, 0);
-      if (name === "volume") setInputs({ volume_trim: 0 }, 0);
-    });
+    el.addEventListener("dblclick", () => resetEncoder(name));
   });
+}
+
+function resetEncoder(name) {
+  if (!S) return;
+  if (name === "time") { setInputs({ hour_override: null }, 0); popup("time", "clock", "following the real time", "var(--orange)"); }
+  if (name === "energy") { setInputs({ energy_trim: 0 }, 0); popup("energy", "±0.00", "reset", "var(--green)"); }
+  if (name === "volume") { setInputs({ volume_trim: 0 }, 0); popup("volume", "auto", "trim reset", "var(--blue)"); }
 }
 
 let popTimer = null;
@@ -402,6 +412,9 @@ async function poll() {
     setTimeout(() => f.classList.remove("bad"), 1400);
   }
 }
+
+// iOS Safari only shows :active pressed states if the page listens for touches
+document.addEventListener("touchstart", () => {}, { passive: true });
 
 initEncoders();
 initKeys();

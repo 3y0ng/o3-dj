@@ -19,6 +19,10 @@ python3 run.py                         # real Sonos (main room IP in config.json
 
 Open http://localhost:8330. Anyone on the same Wi-Fi can use the address printed at startup.
 
+**On a phone** (same Wi-Fi): open the printed address, e.g. `http://192.168.0.70:8330`, in Safari, then
+Share → *Add to Home Screen* for an app-like icon. The phone layout puts play / skip / votes first. Drag a knob up or down
+to turn it, and double-tap to reset it.
+
 ## The controller
 
 | control | what it does |

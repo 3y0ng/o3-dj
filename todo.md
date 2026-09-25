@@ -39,6 +39,12 @@ Still open:
 - [x] **Play failed while Spotify was playing** (UPnP 712: play mode can't be set on a Spotify Connect stream).
   Start now switches to the queue first; play mode / crossfade are best-effort. The controller shows "spotify is playing"
   and asks before taking over (listing the rooms that will switch). Errors now appear in the DJ log.
+- [x] **Skip could cascade through several tracks** (seen live 17:28: one skip, then four "queue jumped back" jumps).
+  Right after a skip Sonos reports the new position with the old URI; the DJ trimmed the starting track from "up next",
+  then treated it as a reset. The list is now only reconciled when position and track agree, and a track counts as "jumped back"
+  only if it has already been played.
+- [x] Phone layout (iPhone 320–430 pt): readable screen text, transport first, 16 px inputs (no iOS zoom), double-tap to reset knobs,
+  44 px vote buttons, safe-area padding, Add to Home Screen metadata.
 - [ ] Offer "take over only the main room" when the group is playing something else (ungroup first).
 - [ ] The Sonos queue grows by ~15-20 tracks an hour and is only cleared when you press play from standby.
   Trim played items occasionally, e.g. once an hour, never within the edit guard window.
