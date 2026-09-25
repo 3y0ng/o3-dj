@@ -134,7 +134,7 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 
 .scr-main { display: grid; grid-template-columns: 36% 1fr; gap: 3cqw; align-items: center; min-height: 0; }
 .reels { width: 100%; overflow: visible; }
-.reel-ring { fill: none; stroke-width: 2.2; }
+.reel-ring { fill: #0c0d10; stroke-width: 2.2; }  /* solid flange: tape passes behind it */
 .hub { fill: #1a1b1e; stroke: var(--white); stroke-width: 1.3; }
 .spoke { stroke-width: 2.4; stroke-linecap: round; }
 .c-blue-s { stroke: var(--blue); } .c-orange-s { stroke: var(--orange); }
