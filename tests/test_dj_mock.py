@@ -54,8 +54,10 @@ class FakeMeta:
 
 
 def make_dj(tmp_path, player=None):
-    return dj_mod.DJ(CFG, player or MockPlayer(track_seconds=1000), FakeLibrary(), FakeCache(), FakeMeta(),
-                     state_file=tmp_path / "state.json")
+    d = dj_mod.DJ(CFG, player or MockPlayer(track_seconds=1000), FakeLibrary(), FakeCache(), FakeMeta(),
+                  state_file=tmp_path / "state.json")
+    d.fade_skips = False  # fades run in a thread with sleeps; tested separately
+    return d
 
 
 @pytest.fixture
@@ -325,3 +327,29 @@ def test_skip_mid_transition_does_not_cascade(dj, monkeypatch):
     dj.tick(2); dj.tick(3)
     assert dj.now_id == nxt and dj.upcoming[0] == after
     assert not any("jumped back" in e["msg"] for e in dj.events)
+
+
+def test_every_streamable_track_is_queued_with_a_lan_url(dj):
+    started(dj)
+    assert all("/media/cache/" in u for u in dj.player.queue_uris())
+    name = dj.player.queue_uris()[0].rsplit("/", 1)[-1]
+    assert dj.track_for_cache_name(name).id == dj.now_id
+
+
+def test_fade_skip_dips_volume_and_restores_it(dj):
+    started(dj)
+    dj.fade_skips = True
+    before = dj.player.group_volume()
+    seen = []
+    real_set = dj.player.set_group_volume
+    dj.player.set_group_volume = lambda v: (seen.append(v), real_set(v))
+    first = dj.now_id
+    dj.skip()
+    for _ in range(40):
+        if not dj.fading:
+            break
+        time.sleep(0.05)
+    dj.tick(1)
+    assert dj.now_id != first
+    assert min(seen) < before * 0.3 and seen[-1] == before
+    assert dj.player.group_volume() == before

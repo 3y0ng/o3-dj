@@ -47,6 +47,9 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - Count a play only once the speaker reports PLAYING.
 - Play mode / crossfade can't be set while the source is Spotify Connect (UPnP 712). Switch to the queue first, and treat those settings as best-effort.
 - A foreign URI playing (Spotify, `x-sonos-vli:`) means someone else took over: the DJ stands down and doesn't adopt it.
+- Sonos crossfade only applies to natural track changes, not manual skips; skips use our own group-volume fade (`_fade_skip`).
+- Always queue tracks with this laptop's `/media/cache/<name>` URL (not the remote URL): cached files start instantly and
+  survive internet drops; `server.py` passes uncached ones through from the source.
 - Queue item IDs `Q:0/n` are positions (SoCo's `remove_from_queue` is 0-based).
 
 ## Conventions

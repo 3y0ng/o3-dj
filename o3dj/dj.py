@@ -79,6 +79,9 @@ class DJ:
         self.targets = self.compute()
         self.events = deque(maxlen=14)
         self.prefetcher = None
+        self._cache_names = {}
+        self.fading = False
+        self.fade_skips = cfg.get("skip_fade", True)
 
         self.base_url = self._base_url()
         self.event("DJ ready" + ("" if player.live else " (mock speakers)"))
@@ -131,12 +134,14 @@ class DJ:
         return bool(t.url)
 
     def item_for(self, t):
-        local = self.cache.local_path(t)
-        use_local = local and (self.cfg["cache"]["prefer_local"] or not t.url or not self.online)
-        if use_local:
-            prefix = "library/" + t.path if t.path else "cache/" + local.name
-            uri = f"{self.base_url}/media/{quote(prefix)}"
-            ext = local.suffix.lower()
+        # Speakers always stream from this laptop: cached files start instantly and survive
+        # internet drops; not-yet-cached tracks are passed through from the source by the server
+        # (and the prefetcher downloads them within seconds of being queued).
+        if t.path:
+            uri, ext = f"{self.base_url}/media/{quote('library/' + t.path)}", Path(t.path).suffix.lower()
+        elif self.cfg["cache"]["prefer_local"]:
+            name = self.cache.name_for(t)
+            uri, ext = f"{self.base_url}/media/cache/{quote(name)}", Path(name).suffix.lower()
         else:
             uri, ext = t.url, Path(t.url).suffix.lower()
         self.uri_map[uri] = t.id
@@ -144,6 +149,11 @@ class DJ:
         label = self.library.genres().get(t.genre, t.genre)
         return {"uri": uri, "title": t.title, "artist": t.artist or "O3 DJ",
                 "album": f"O3 DJ - {label}", "mime": MIME.get(ext, "audio/mpeg")}
+
+    def track_for_cache_name(self, name):
+        if name not in self._cache_names:
+            self._cache_names = {self.cache.name_for(t): t for t in self.library.all() if t.url}
+        return self._cache_names.get(name)
 
     def pick(self, n=1):
         tgt = self.targets
@@ -210,8 +220,38 @@ class DJ:
                 self.event(f"skipped {self.title(self.now_id)}")
             if not self.upcoming:
                 self._top_up(1)
-            self.player.next()
+            self._next()
             self.paused = False
+
+    def _next(self):
+        """Skip, with a quick fade out/in so it isn't a hard cut into silence."""
+        if not self.fade_skips or self.fading:
+            return self.player.next()
+        self.fading = True
+        threading.Thread(target=self._fade_skip, daemon=True, name="fade-skip").start()
+
+    def _fade_skip(self):
+        try:
+            start = self.player.group_volume()
+            for f in (0.7, 0.45, 0.25, 0.1):
+                self.player.set_group_volume(round(start * f))
+                time.sleep(0.1)
+            self.player.next()
+            for _ in range(25):  # wait (up to 5 s) for the next track to actually start
+                time.sleep(0.2)
+                if self.player.status()["state"] == "PLAYING":
+                    break
+            for f in (0.3, 0.5, 0.7, 0.85, 1.0):
+                self.player.set_group_volume(round(start * f))
+                time.sleep(0.15)
+        except Exception:
+            log.exception("fade skip failed")
+            try:
+                self.player.next()
+            except Exception:
+                pass
+        finally:
+            self.fading = False
 
     def vote(self, direction, tid=None):
         with self.lock:
@@ -229,7 +269,7 @@ class DJ:
             if tid == self.now_id and self.running:
                 if not self.upcoming:
                     self._top_up(1)
-                self.player.next()
+                self._next()
             elif tid in self.upcoming:
                 self._swap_out(tid)
 
@@ -527,7 +567,7 @@ class DJ:
                 if self.refresh_upcoming():
                     self.dirty_at = None
 
-            if state == "PLAYING":
+            if state == "PLAYING" and not self.fading:
                 self._apply_volume()
 
     def _check_daypart(self):

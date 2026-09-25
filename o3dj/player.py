@@ -172,6 +172,15 @@ class SonosPlayer:
         with self.lock:
             return {m.ip_address: m.volume for m in self.ctrl.group.members}
 
+    def group_volume(self):
+        with self.lock:
+            return self.ctrl.group.volume
+
+    def set_group_volume(self, vol):
+        """One call for the whole group; Sonos keeps the rooms' relative levels."""
+        with self.lock:
+            self.ctrl.group.volume = max(0, min(100, int(vol)))
+
     def set_volume(self, ip, vol):
         with self.lock:
             self.zones[ip].volume = vol
@@ -292,6 +301,15 @@ class MockPlayer:
 
     def volumes(self):
         return {ip: self.rooms[ip]["volume"] for ip in self.group}
+
+    def group_volume(self):
+        v = self.volumes()
+        return round(sum(v.values()) / len(v)) if v else 0
+
+    def set_group_volume(self, vol):
+        cur = self.group_volume()
+        for ip in self.group:
+            self.rooms[ip]["volume"] = max(0, min(100, self.rooms[ip]["volume"] + int(vol) - cur))
 
     def set_volume(self, ip, vol):
         self.rooms[ip]["volume"] = vol

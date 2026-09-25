@@ -3,7 +3,9 @@
 import logging
 import re
 
-from flask import Flask, jsonify, request, send_from_directory
+import requests
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from werkzeug.exceptions import NotFound
 
 from .config import CACHE_DIR, LIBRARY, WEB
 
@@ -16,6 +18,10 @@ def create_app(dj):
 
     def ok():
         return jsonify(dj.snapshot())
+
+    @app.errorhandler(NotFound)
+    def not_found(e):
+        return jsonify({"error": "not found"}), 404
 
     @app.errorhandler(Exception)
     def on_error(e):
@@ -83,7 +89,24 @@ def create_app(dj):
 
     @app.get("/media/cache/<name>")
     def media_cache(name):
-        return send_from_directory(CACHE_DIR, name, conditional=True)
+        """Speakers always get this laptop's URL. Serve the cached file if we have it;
+        otherwise pass the stream through from the source (the prefetcher caches it meanwhile)."""
+        if (CACHE_DIR / name).is_file():
+            return send_from_directory(CACHE_DIR, name, conditional=True)
+        track = dj.track_for_cache_name(name)
+        if not track or not track.url:
+            abort(404)
+        headers = {"User-Agent": "o3-dj/0.1"}
+        if request.headers.get("Range"):
+            headers["Range"] = request.headers["Range"]
+        try:
+            upstream = requests.get(track.url, headers=headers, stream=True, timeout=(5, 30))
+        except requests.RequestException:
+            abort(502)
+        passthrough = {k: v for k, v in upstream.headers.items()
+                       if k.lower() in ("content-type", "content-length", "content-range", "accept-ranges")}
+        body = upstream.iter_content(1 << 15) if request.method != "HEAD" else []
+        return Response(body, status=upstream.status_code, headers=passthrough, direct_passthrough=True)
 
     @app.get("/media/library/<path:rel>")
     def media_library(rel):

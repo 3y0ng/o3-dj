@@ -45,6 +45,11 @@ Still open:
   only if it has already been played.
 - [x] Phone layout (iPhone 320–430 pt): readable screen text, transport first, 16 px inputs (no iOS zoom), double-tap to reset knobs,
   44 px vote buttons, safe-area padding, Add to Home Screen metadata.
+- [x] **Skips left a silent gap.** Most queued tracks streamed straight from chillify.me (only already-cached picks got the
+  laptop's URL), so a skip had to buffer from the internet. Every track is now queued with the laptop's URL, and the server
+  serves the cached file or passes the stream through (range requests supported) until the prefetcher has cached it.
+  Skips/"not this" also fade the group volume down, skip, and fade back up once the next track plays (`skip_fade`).
+- [ ] Verify the soft skip by ear on the real speakers; tune fade length if it feels slow.
 - [ ] Offer "take over only the main room" when the group is playing something else (ungroup first).
 - [ ] The Sonos queue grows by ~15-20 tracks an hour and is only cleared when you press play from standby.
   Trim played items occasionally, e.g. once an hour, never within the edit guard window.
