@@ -90,11 +90,19 @@ class SonosPlayer:
         with self.lock:
             c = self.ctrl
             c.clear_queue()
-            c.play_mode = "NORMAL"
-            if self.crossfade:
-                c.cross_fade = True
             c.add_multiple_to_queue([self._didl(i) for i in items])
-            c.play_from_queue(0)
+            c.play_from_queue(0)  # switches the speaker to its queue (e.g. away from Spotify)
+            # Play mode / crossfade can only be set once the queue is the source,
+            # and they're nice-to-haves: never let them stop the music.
+            for attr, value in (("play_mode", "NORMAL"), ("cross_fade", self.crossfade)):
+                try:
+                    setattr(c, attr, value)
+                except Exception as e:
+                    log.warning("couldn't set %s: %s", attr, e)
+
+    def group_size(self):
+        with self.lock:
+            return len(self.ctrl.group.members)
 
     def append(self, items):
         if items:
@@ -227,6 +235,9 @@ class MockPlayer:
     def append(self, items):
         with self.lock:
             self.queue.extend(items)
+
+    def group_size(self):
+        return len(self.group)
 
     def drop_from(self, index):
         with self.lock:

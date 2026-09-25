@@ -36,6 +36,10 @@ Still open:
   DJ group, then a Spotify stream took over the whole building and the DJ stood down (correctly). The controller
   now asks for confirmation before party mode / joining a room. Better: show what each room is playing and offer
   "join only idle rooms", and remember each room's previous volume/group to restore it when leaving.
+- [x] **Play failed while Spotify was playing** (UPnP 712: play mode can't be set on a Spotify Connect stream).
+  Start now switches to the queue first; play mode / crossfade are best-effort. The controller shows "spotify is playing"
+  and asks before taking over (listing the rooms that will switch). Errors now appear in the DJ log.
+- [ ] Offer "take over only the main room" when the group is playing something else (ungroup first).
 - [ ] The Sonos queue grows by ~15-20 tracks an hour and is only cleared when you press play from standby.
   Trim played items occasionally, e.g. once an hour, never within the edit guard window.
 - [ ] Crossfade is switched on for the main room (`crossfade` in config) and stays on after the DJ stops. Restore previous settings on stand-down.

@@ -20,6 +20,8 @@ def create_app(dj):
     @app.errorhandler(Exception)
     def on_error(e):
         log.exception("request failed")
+        if request.path.startswith("/api/"):
+            dj.event("error: " + str(e).split(" from ")[0][:90])
         code = getattr(e, "code", 500)
         return jsonify({"error": str(e)}), code if isinstance(code, int) else 500
 

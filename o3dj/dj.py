@@ -605,6 +605,9 @@ class DJ:
                 pg["tracks"] += 1
                 pg["cached"] += self.cache.has(t)
             status = dict(self.status)
+            # something the DJ didn't queue is playing (Spotify, radio, another app)
+            status["other_source"] = bool(status.get("uri")) and status.get("state") == "PLAYING" \
+                and (not self.running or status["uri"] not in self.uri_map)
             if self.now_id and not status.get("duration"):
                 status["duration"] = int(self.meta.duration(self.now_id) or 0)
             return {

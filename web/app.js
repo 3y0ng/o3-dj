@@ -155,6 +155,11 @@ function initKeys() {
   $("#k-clock").addEventListener("click", () => setInputs({ hour_override: S.inputs.hour_override == null ? S.targets.hour : null }, 0));
   $("#k-play").addEventListener("click", () => {
     const playing = S.running && !S.paused && S.status.state !== "STOPPED";
+    if (!playing && !S.running && S.status.other_source) {
+      const rooms = S.speakers.filter((sp) => sp.in_group).map((sp) => sp.name);
+      const what = /spotify/i.test(S.status.uri) ? "Spotify" : "something else";
+      if (!confirm(`The speakers are playing ${what} in ${rooms.length} room${rooms.length === 1 ? "" : "s"}:\n\n${rooms.join("\n")}\n\nReplace it with the DJ?`)) return;
+    }
     act("/api/control", { action: playing ? "pause" : "play" });
   });
   $("#k-skip").addEventListener("click", () => act("/api/control", { action: "skip" }));
@@ -217,7 +222,7 @@ function render(s, local = false) {
   stateEl.textContent = s.health.speaker_error ? "speaker error" :
     !s.running ? "standby" : s.paused ? "paused" : playing ? "on air · " + fmtTime(st.elapsed) + (st.duration ? " / " + fmtTime(st.duration) : "") : (st.state || "").toLowerCase();
   stateEl.className = "np-state " + (playing ? "live" : s.health.speaker_error ? "c-red" : "c-dim");
-  $("#s-title").textContent = n ? n.title : s.running ? "…" : "press ▶ to start the dj";
+  $("#s-title").textContent = n ? n.title : s.running ? "…" : st.other_source ? (/spotify/i.test(st.uri) ? "spotify is playing" : "another source is playing") : "press ▶ to start the dj";
   $("#s-meta").textContent = n
     ? [n.genre_label, n.bpm ? Math.round(n.bpm) + " bpm" : "bpm ?", n.cached ? "cached" : "stream", n.up || n.down ? `▲${n.up} ▼${n.down}` : ""].filter(Boolean).join(" · ")
     : s.health.speaker_error || " ";
