@@ -195,6 +195,7 @@ function render(s, local = false) {
   const playing = s.running && !s.paused && st.state === "PLAYING";
 
   $("#screen").classList.toggle("playing", playing);
+  spin.playing = playing;
   drawTape(s.running && st.duration ? Math.min(1, (st.elapsed || 0) / st.duration) : s.running ? 0.5 : 0);
   $("#led-power").className = "led" + (playing ? " on" : s.running ? " on green" : "");
   $("#mode-tag").textContent = s.live ? "live" : "mock";
@@ -345,8 +346,10 @@ function tangent([cx, cy], r, [px, py], outer) {  // point where tape leaves the
   const t = a + (outer === "left" ? b : -b);
   return [cx + r * Math.cos(t), cy + r * Math.sin(t)];
 }
+const spin = { l: 0, r: 0, rl: REEL.full, rr: REEL.core, playing: false, last: 0 };
 function drawTape(progress) {
   const rl = packRadius(1 - progress), rr = packRadius(progress);
+  spin.rl = rl; spin.rr = rr;
   $("#pack-l").setAttribute("r", rl.toFixed(2));
   $("#pack-r").setAttribute("r", rr.toFixed(2));
   const [gx1, gy] = REEL.guideL, [gx2] = REEL.guideR, low = gy + REEL.gr;
@@ -356,6 +359,24 @@ function drawTape(progress) {
   $("#tape").setAttribute("d",
     `M${f(a)} L${f([gx1 - REEL.gr, gy])} A${REEL.gr} ${REEL.gr} 0 0 0 ${f([gx1, low])} L${f([gx2, low])} A${REEL.gr} ${REEL.gr} 0 0 0 ${f([gx2 + REEL.gr, gy])} L${f(b)}`);
 }
+
+// Tape runs at constant speed, so each reel turns at speed / pack radius.
+// Tape leaves the left pack going down its left side and winds onto the right pack
+// going up its right side: both reels turn counter-clockwise.
+const TAPE_SPEED = 360 * 0.35 * REEL.full;  // deg/s * radius: a full pack turns 0.35 rev/s
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function spinReels(t) {
+  const dt = spin.last ? Math.min(0.1, (t - spin.last) / 1000) : 0;
+  spin.last = t;
+  if (spin.playing && !reduceMotion) {
+    spin.l = (spin.l - (TAPE_SPEED / spin.rl) * dt) % 360;
+    spin.r = (spin.r - (TAPE_SPEED / spin.rr) * dt) % 360;
+    $(".reel.r1").setAttribute("transform", `rotate(${spin.l.toFixed(1)} ${REEL.l[0]} ${REEL.l[1]})`);
+    $(".reel.r2").setAttribute("transform", `rotate(${spin.r.toFixed(1)} ${REEL.r[0]} ${REEL.r[1]})`);
+  }
+  requestAnimationFrame(spinReels);
+}
+requestAnimationFrame(spinReels);
 
 // ── utils ──────────────────────────────────────────────────────────────
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
