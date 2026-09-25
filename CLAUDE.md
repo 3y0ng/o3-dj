@@ -41,8 +41,12 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 ## Sonos gotchas (learned live; don't regress)
 
 - Sonos reports duration `0:00:00` for these http streams. Use `meta.duration()` (ffprobe) instead.
-- Never edit the queue in the last `EDIT_GUARD_SECS` (35 s) of a track: Sonos pre-loads the next item, and removing it
-  stopped playback and reset the queue to item 1. Re-read the live position before removing (`drop_from`).
+- Never remove the playing item **or the next one** (`PROTECTED_AHEAD` in `player.py`). Sonos pre-loads the next item as
+  soon as the current file is buffered (seconds, for files served from this laptop), and removing it stopped playback and
+  reset the queue to item 1. That happened live twice: ~20 s and ~40 s before a track's end, so a time guard is not enough.
+  Mood changes re-pick from the track after next. `drop_from` re-reads the live position before removing.
+- Don't trim "up next" by queue position: right after a skip Sonos reports the new position with the old URI.
+  Advance only when the reported URI changes (`_on_playing`).
 - On a reset or failure, jump to the first *unplayed* DJ track (`_jump_to_next_unplayed`); never replay from the top.
 - Count a play only once the speaker reports PLAYING.
 - Play mode / crossfade can't be set while the source is Spotify Connect (UPnP 712). Switch to the queue first, and treat those settings as best-effort.

@@ -123,25 +123,31 @@ def test_mock_and_live_state_are_separate(tmp_path):
 
 # -- re-picking safely ---------------------------------------------------------------
 
-def test_genre_change_repicks_upcoming(dj, monkeypatch):
+def test_genre_change_repicks_after_the_next_track(dj, monkeypatch):
     started(dj)
     at_elapsed(dj, 30)
+    nxt = dj.upcoming[0]
     dj.set_inputs({"genres": ["asian"]})
     settle(dj, monkeypatch)
     dj.tick(1)
-    assert all(dj.library.get(i).genre == "asian" for i in dj.upcoming)
+    assert dj.upcoming[0] == nxt  # pre-loaded by Sonos: kept
+    assert all(dj.library.get(i).genre == "asian" for i in dj.upcoming[1:])
     assert dj.player.queue_uris()[dj.status["index"]] == dj.id_uri[dj.now_id]
 
 
-def test_no_queue_edits_near_end_of_track(dj, monkeypatch):
-    started(dj)
-    before = list(dj.upcoming)
-    at_elapsed(dj, 180)  # 20 s left: next track may be pre-loading
-    dj.set_inputs({"genres": ["asian"]})
-    settle(dj, monkeypatch)
-    dj.tick(1)
-    assert dj.upcoming == before and dj.dirty_at is not None  # deferred, not dropped
-    assert dj.status["state"] == "PLAYING"
+def test_mid_song_repick_never_stops_playback(dj, monkeypatch):
+    """Seen live 23:11: a re-pick ~40 s before the end removed the pre-loaded next item
+    and the Sonos stopped. Any point in the song must be safe."""
+    for elapsed in (5, 60, 150, 190):
+        started(dj)
+        at_elapsed(dj, elapsed)
+        nxt = dj.upcoming[0]
+        dj.set_inputs({"weather": "rain" if dj.inputs.weather != "rain" else "clear"})
+        settle(dj, monkeypatch)
+        dj.tick(1)
+        monkeypatch.undo()
+        assert dj.status["state"] == "PLAYING" and dj.upcoming[0] == nxt, elapsed
+        assert dj.player.queue_uris()[dj.status["index"] + 1] == dj.id_uri[nxt]
 
 
 def test_unknown_length_keeps_next_track(dj, monkeypatch):
@@ -154,11 +160,11 @@ def test_unknown_length_keeps_next_track(dj, monkeypatch):
     assert all(dj.library.get(i).genre == "asian" for i in dj.upcoming[1:])
 
 
-def test_drop_never_removes_playing_track(dj):
+def test_drop_never_removes_playing_or_next_track(dj):
     started(dj)
     dj.player.drop_from(0)
     assert dj.player.status()["state"] == "PLAYING"
-    assert dj.player.queue_uris() == [dj.id_uri[dj.now_id]]
+    assert dj.player.queue_uris() == [dj.id_uri[dj.now_id], dj.id_uri[dj.upcoming[0]]]
 
 
 # -- recovery ---------------------------------------------------------------------
@@ -327,6 +333,8 @@ def test_skip_mid_transition_does_not_cascade(dj, monkeypatch):
     dj.tick(2); dj.tick(3)
     assert dj.now_id == nxt and dj.upcoming[0] == after
     assert not any("jumped back" in e["msg"] for e in dj.events)
+    uris = dj.player.queue_uris()
+    assert len(set(uris)) == len(uris), "a track was queued twice"
 
 
 def test_every_streamable_track_is_queued_with_a_lan_url(dj):
@@ -338,6 +346,7 @@ def test_every_streamable_track_is_queued_with_a_lan_url(dj):
 
 def test_fade_skip_dips_volume_and_restores_it(dj):
     started(dj)
+    dj._apply_volume(max_step=100)  # settle the auto-volume ramp so only the fade moves it
     dj.fade_skips = True
     before = dj.player.group_volume()
     seen = []

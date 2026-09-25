@@ -3,9 +3,10 @@ tracks when the atmosphere changes, ramps volume, and falls back to the
 local cache when the music source is unreachable.
 
 Queue safety rules (learned the hard way on a real Sonos):
-  - never edit the queue near the end of a track: Sonos pre-loads the next
-    item for crossfade, and removing it can stop playback and reset the
-    queue to item 1;
+  - never remove the next queue item: Sonos pre-loads it (as soon as the
+    current file is buffered, i.e. within seconds for files served from this
+    laptop) and removing it stops playback and resets the queue to item 1.
+    Mood changes therefore re-pick from the track after next;
   - if the queue does reset, jump to the first *unplayed* DJ track, never
     replay from the top;
   - only count a play once the speaker reports it PLAYING.
@@ -32,7 +33,6 @@ DISCRETE_INPUTS = {"genres", "weather", "occupancy_enabled", "hour_override"}
 CONTINUOUS_INPUTS = {"energy_trim", "occupancy"}
 VOLUME_INPUTS = {"auto", "manual_volume", "volume_trim"}
 
-EDIT_GUARD_SECS = 35      # don't touch the next queue item this close to a track's end
 KNOB_SETTLE_SECS = 4      # wait this long after the last knob turn before re-picking
 SKIP_COOLDOWN_SECS = 3    # ignore double-taps on skip / not this
 
@@ -279,9 +279,7 @@ class DJ:
         uris = self.player.queue_uris()
         idx = len(uris) - 1 - uris[::-1].index(uri) if uri in uris else None
         st = self.player.status()
-        left = self.seconds_left(st)
-        next_up = idx == st["index"] + 1
-        if idx is None or idx <= st["index"] or (next_up and (left is None or left < EDIT_GUARD_SECS)):
+        if idx is None or idx <= st["index"] + 1:  # the next item is pre-loaded: never remove it
             self.skip_on_start.add(tid)
             return
         if self.player.remove_index(idx):
@@ -327,10 +325,7 @@ class DJ:
             self.status = st
             if st["state"] == "TRANSITIONING":
                 return False
-            left = self.seconds_left(st)
-            if left is not None and left < EDIT_GUARD_SECS:
-                return False  # next track may already be pre-loading; wait for it to start
-            keep = 1 if left is None else 0  # unknown length: leave the next track alone
+            keep = min(1, len(self.upcoming))  # the next track is pre-loaded by Sonos: leave it
             self.player.drop_from(st["index"] + 1 + keep)
             self.upcoming = self.upcoming[:keep]
             self._top_up(self.cfg["queue_ahead"] - keep)
@@ -553,13 +548,11 @@ class DJ:
                     self._on_stopped(st, cur)
                     return
 
+            # "up next" advances only when the speaker reports a different track (_on_playing).
+            # Never trim it by queue position: mid-transition (e.g. right after a skip) Sonos
+            # reports the new position with the old track's URI, and trimming then dropped the
+            # starting track, which then got picked and queued a second time.
             remaining = st["queue_size"] - st["index"] - 1
-            # Only reconcile the upcoming list when the speaker's position and track agree.
-            # Mid-transition (e.g. right after a skip) Sonos can report the new position with
-            # the old track's URI; trimming then would drop the track that is just starting.
-            in_sync = state == "PLAYING" and cur == self.now_id
-            if in_sync and len(self.upcoming) > remaining:
-                self.upcoming = self.upcoming[len(self.upcoming) - max(remaining, 0):]
             if remaining < self.cfg["queue_ahead"]:
                 self._top_up(self.cfg["queue_ahead"] - remaining)
 

@@ -72,8 +72,8 @@ the upcoming picks are replaced within a couple of seconds and the current song 
 - **Someone plays Spotify on the speakers**: the DJ notices and stands down until you press play.
 - **Paused/stopped from the Sonos app**: the DJ respects it and waits for play.
 - **The DJ restarts**: it takes back its own queue and carries on, as long as the speaker is still playing it.
-- **Queue safety**: the DJ never edits the queue in the last 35 s of a track (Sonos is pre-loading the next one),
-  and if the speaker jumps back to an old track it skips forward to new music instead of replaying.
+- **Queue safety**: the DJ never removes the playing track or the next one (the Sonos pre-loads it), so mood changes
+  take effect from the track after next. If the speaker jumps back to an old track, it skips forward to new music instead of replaying.
 
 The laptop has to stay on and awake (macOS: `caffeinate -i python3 run.py`), and
 allow incoming connections if the firewall asks, so the speakers can fetch cached files.

@@ -112,19 +112,24 @@ class SonosPlayer:
     def _position(self, c):
         return int(c.get_current_track_info().get("playlist_position") or 0) - 1
 
+    # Never remove the playing item OR the one right after it: Sonos pre-loads the next item
+    # as soon as the current file is buffered (seconds, for files served from this laptop),
+    # and removing it stops playback and resets the queue to item 1.
+    PROTECTED_AHEAD = 1
+
     def drop_from(self, index):
-        """Remove queue entries from `index` onwards, re-reading the live position
-        first so the track that is actually playing is never removed."""
+        """Remove queue entries from `index` onwards, re-reading the live position first
+        so the playing track and the pre-loaded next track are never removed."""
         with self.lock:
             c = self.ctrl
-            start = max(index, self._position(c) + 1)
+            start = max(index, self._position(c) + 1 + self.PROTECTED_AHEAD)
             for i in range(c.queue_size - 1, start - 1, -1):
                 c.remove_from_queue(i)
 
     def remove_index(self, index):
         with self.lock:
             c = self.ctrl
-            if index > self._position(c):
+            if index > self._position(c) + self.PROTECTED_AHEAD:
                 c.remove_from_queue(index)
                 return True
             return False
@@ -248,19 +253,21 @@ class MockPlayer:
     def group_size(self):
         return len(self.group)
 
+    PROTECTED_AHEAD = SonosPlayer.PROTECTED_AHEAD
+
     def drop_from(self, index):
         with self.lock:
-            del self.queue[max(index, self.index + 1):]
+            del self.queue[max(index, self.index + 1 + self.PROTECTED_AHEAD):]
 
     def remove_index(self, index):
-        """Like Sonos: removing the playing item stops and resets to item 1."""
+        """Like Sonos: removing the playing or pre-loaded next item stops and resets to item 1."""
         with self.lock:
             del self.queue[index]
-            if index == self.index:
+            if index in (self.index, self.index + 1):
                 self.index, self.state, self.paused_elapsed = 0, "STOPPED", 0
             elif index < self.index:
                 self.index -= 1
-            return index > self.index
+            return index > self.index + 1
 
     def queue_uris(self):
         return [q["uri"] for q in self.queue]

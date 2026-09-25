@@ -54,7 +54,12 @@ Still open:
 - [ ] The Sonos queue grows by ~15-20 tracks an hour and is only cleared when you press play from standby.
   Trim played items occasionally, e.g. once an hour, never within the edit guard window.
 - [ ] Crossfade is switched on for the main room (`crossfade` in config) and stays on after the DJ stops. Restore previous settings on stand-down.
-- [ ] Verify the 35 s guard on the real speakers: turn knobs in the last minute of a track and check nothing cuts out.
+- [x] **A song cut out ~36 s before its end** (live 23:11). An internet blip triggered a re-pick that removed the next queue item,
+  which the Sonos had already pre-loaded (it pre-loads within seconds when files come from this laptop). The 35 s guard wasn't enough:
+  the playing item and the next one are now never removed (enforced in `player.py`), and mood changes apply from the track after next.
+- [x] Right after a skip, the stale Sonos status could get a track dropped from "up next" and queued twice. Up next now only advances
+  on a real track change (500 randomised runs, 0 failures).
+- [ ] If a song is cut short anyway, resume it where it stopped (play its queue index + seek) instead of moving on.
 
 ## 2. Tuning (from how it was used)
 
