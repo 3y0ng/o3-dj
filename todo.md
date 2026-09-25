@@ -5,51 +5,52 @@ Ordered by priority. **Bugs** are things that went wrong or will go wrong; the r
 
 ---
 
-## 1. Bugs (fix first)
+## 1. Bugs
 
-- [ ] **Re-picking "up next" can cut off the current song and restart the queue from the top.**
-  Seen live at 16:17:49: *Vacuum Ink* (2:48 long, started 16:15:21) stopped ~20 s early while
-  knob turns were triggering re-picks. The Sonos jumped to queue item 1 (*Sunset Groove*, the first
-  track of the session), sat stopped, and the DJ recovered by playing item 2, a **repeat** of *Daydream Echoes*.
-  Queue IDs (`Q:0/n`) match positions, so the removal index maths is right; the likely cause is
-  editing the queue while the Sonos is pre-loading the next track for crossfade.
-  Fix ideas (do several):
-  - never touch index+1 in the last ~30 s of a track. This needs track duration, which Sonos reports as
-    `0:00:00` for these streams, so store duration from ffprobe during analysis/caching;
-  - re-read the position right before removing, and refuse to remove the current URI;
-  - debounce re-picks harder while a knob is moving (currently 2.5 s after the last change);
-  - consider keeping index+1 fixed and only re-picking index+2 onwards (mood lags one song, but it's safe).
-- [ ] **Stall recovery replays old tracks.** When the Sonos stops, `tick()` plays `index + 1`, which after a queue
-  reset means replaying from the start. Recovery should jump to the first *unplayed* DJ track by URI
-  (or top up and play the new last item), never an earlier one.
-- [ ] **Wrong track blamed/recorded after a reset.** The same event logged a fake play *and* a playback
-  failure against *Sunset Groove*. Only record a play when state is PLAYING, and only count a failure
-  against a track that actually tried to play (elapsed ≈ 0 on a fresh URI).
-- [ ] **Staff pressing Stop in the Sonos app gets overridden.** STOPPED is treated as a stall, so the DJ restarts
-  music within ~4 s. Distinguish "stopped by a person" (Sonos app, mid-track) from "stream failed"
-  (STOPPED at 0:00), and stand down on the former.
-- [ ] **Mock runs write into live state.** `--mock` shares `data/state.json`; 45-second mock "plays" are now in the
-  live play counts/history (59 plays logged across 57 tracks, some from mock). Give mock its own `data/mock/`.
-  Optionally reset `data/state.json` votes once.
-- [ ] **Trims never expire.** Knob trims are saved forever. With the trims from today's session
-  (energy −0.40, volume −7) the DJ would be at 0.18 energy by 19:00 and the floor (0.05) by 22:00.
-  Options: trims decay back to 0 over ~1 h, reset at each daypart change, or show an obvious "trims active" badge.
-- [ ] **Queued songs ignore the clock.** Upcoming picks only refresh on manual changes, not when the real clock
-  crosses into a new daypart (afternoon → early evening). Add a re-pick on daypart change (~3 lines in `tick`).
-- [ ] Analysis failures are permanent (`{"failed": true}` in `track_meta.json`; 1 of 909 so far, a network blip).
-  Retry after a day.
-- [ ] `base_url` (this laptop's LAN IP) is fixed at startup. If DHCP hands out a new IP, every queued cached
-  track 404s. Re-check the IP in the health loop and re-queue if it changes.
-- [ ] Downvoting one "up next" track re-picks *both* upcoming tracks; replace just that one.
+Fixed 25 Sep 2026 (tests in `tests/test_dj_mock.py`; the mock now reproduces Sonos's reset-to-item-1 behaviour):
+
+- [x] **Re-picking cut off the current song and restarted the queue from the top** (seen live 16:17:49).
+  Now: track lengths are measured with ffprobe (Sonos reports 0:00 for these streams); no queue edits in
+  the last 35 s of a track (retried after it changes); removal re-reads the live position and never deletes
+  the playing item; if the length is unknown the next track is left alone; knobs settle 4 s before re-picking.
+- [x] **Stall recovery replayed old tracks.** Recovery now jumps to the first *unplayed* DJ track by URI. If an
+  old track starts playing (queue reset), the DJ skips forward to new music.
+- [x] **Wrong track blamed/recorded after a reset.** Plays count only once the speaker reports PLAYING; failures only
+  when a track never got going (< 3 s).
+- [x] **Stop in the Sonos app got overridden.** A mid-song stop now pauses the DJ ("press play to resume");
+  a pause in the Sonos app is mirrored too.
+- [x] **Mock runs wrote into live state.** Mock uses `data/mock_state.json`. Live history was cleaned
+  (backup: `data/state.backup-2026-09-25.json`): 11 real plays kept, the reset "replays" removed.
+- [x] **Trims never expired.** Knob trims reset when the real clock enters a new daypart (`reset_trims_on_daypart`).
+- [x] **Queued songs ignored the clock.** Daypart changes now trigger a re-pick.
+- [x] Analysis failures were permanent; they now retry after 24 h.
+- [x] LAN IP change broke queued cached tracks; the health loop now notices and re-queues.
+- [x] Downvoting one "up next" track re-picked both; it now swaps just that one (or skips it on arrival if it's too late to edit).
+- [x] Double-taps on skip / not this: 3 s cooldown.
+- [x] **Restart = silence two songs later.** The DJ now saves that it's running and, on restart, takes back its own queue
+  (only if the speaker is really playing it, not e.g. Spotify).
+
+Still open:
+
+- [ ] **Party mode takes over rooms playing something else.** Seen live 16:28: party mode pulled all five rooms into the
+  DJ group, then a Spotify stream took over the whole building and the DJ stood down (correctly). The controller
+  now asks for confirmation before party mode / joining a room. Better: show what each room is playing and offer
+  "join only idle rooms", and remember each room's previous volume/group to restore it when leaving.
+- [ ] The Sonos queue grows by ~15-20 tracks an hour and is only cleared when you press play from standby.
+  Trim played items occasionally, e.g. once an hour, never within the edit guard window.
+- [ ] Crossfade is switched on for the main room (`crossfade` in config) and stays on after the DJ stops. Restore previous settings on stand-down.
+- [ ] Verify the 35 s guard on the real speakers: turn knobs in the last minute of a track and check nothing cuts out.
 
 ## 2. Tuning (from how it was used)
 
-- [ ] The session ran with energy trim at its **minimum (−0.40)** and volume −7 in the afternoon, so the default
-  curve is too energetic/loud for a study cafe. Lower `daypart_curve` (afternoon energy 0.70 → ~0.45,
-  volume 42 → ~35) and widen the energy trim range, then re-test.
+- [x] The first session ran at the minimum energy trim and volume −7…−30, so the curve was lowered:
+  afternoon 0.70/42 → 0.45/36, evening 0.38/28 → 0.25/26, late night 0.25/22 → 0.18/20. The energy trim range is now ±0.5.
+  Saved trims were reset to 0.
+- [ ] Re-check by ear over a few days and adjust `daypart_curve`; ideally log trims so the defaults can be learned.
 - [ ] Check the energy scale by ear: listen to 5 tracks near 0.1 and 5 near 0.9 per genre. The tempo estimator
   may double/halve some lo-fi tempos; votes will show which way.
 - [ ] Per-room offsets (`room_volume_offsets`) once party mode is used: entrance louder, study floors quieter.
+  (The Storage room was at 58 while the others were at 38 after the Spotify takeover.)
 
 ## 3. Before staff use it
 
@@ -58,9 +59,9 @@ Ordered by priority. **Bugs** are things that went wrong or will go wrong; the r
 - [ ] **Staff view vs admin view.** Staff: now playing, up next, 👍 / 👎 / skip, "quieter please". Admin: knobs, rooms, genres.
 - [ ] **Run as a service.** launchd job with auto-restart, `caffeinate` so the laptop doesn't sleep (the speakers stream
   cached files from it), log to file. Longer term, a dedicated box (Mac mini / Raspberry Pi) per venue.
-- [ ] **Resume after a restart.** `running` isn't persisted, so a crash means silence two songs later. Persist it and resume.
+- [x] **Resume after a restart.** Done (see bugs).
 - [ ] Real web server (waitress/gunicorn) instead of Flask's dev server.
-- [ ] Rate-limit skips/downvotes, so one person can't skip the whole playlist.
+- [ ] Rate-limit skips/downvotes per person (there's only a global 3 s double-tap guard), so one person can't skip the whole playlist.
 
 ## 4. Roadmap: live data instead of manual toggles
 
@@ -77,15 +78,15 @@ All of these only need to POST to `/api/inputs`.
 - [ ] "Adjust what the DJ chose": pin a track to play next, lock a genre for an hour, "more like this" from a track.
 - [ ] Learn from votes per daypart (a track loved at 10am may not suit 11pm), not just globally.
 - [ ] Better energy model: add a proper tempo library (librosa/essentia) or embeddings, and compare against votes.
-- [ ] Duration + artwork metadata so the Sonos app and screen show full info.
+- [ ] Artwork metadata so the Sonos app and screen show full info (duration is now measured).
 - [ ] More sources: licensed business music services (Soundtrack Your Brand, etc.), Free Music Archive (check licences),
   a shared Google Drive folder synced into `library/`.
 - [ ] Analytics: what played when, skips/downvotes by daypart, hours of music per room; later, correlate with dwell time/sessions.
 
 ## 6. Housekeeping
 
-- [ ] Tests for the queue edge cases above (edit during transition, stop vs stall, reset recovery) using the MockPlayer
-  (add transition/crossfade and "Sonos resets to item 1" behaviour to the mock).
+- [x] Tests for queue edge cases (edit near the end, stop vs stall, reset recovery, adopt after restart).
+- [ ] Mock doesn't simulate crossfade/TRANSITIONING; add it if transition bugs show up again.
 - [ ] Cache: only warm the selected genres heavily; the others need fewer tracks.
 - [ ] Confirm Chillify's licence allows commercial/venue playback before the pilot.
 - [ ] `.claude/launch.json` preview config can't reach the speakers (macOS Local Network permission for the app);

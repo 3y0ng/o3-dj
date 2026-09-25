@@ -41,7 +41,8 @@ def main():
 
     library = Library(cfg)
     library.refresh()
-    dj = DJ(cfg, player, library, Cache(cfg), Meta())
+    state_file = config.DATA / ("mock_state.json" if args.mock else "state.json")
+    dj = DJ(cfg, player, library, Cache(cfg), Meta(), state_file=state_file)
 
     threading.Thread(target=dj.run, daemon=True, name="dj").start()
     threading.Thread(target=dj.health_loop, daemon=True, name="health").start()

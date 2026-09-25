@@ -101,12 +101,34 @@ class SonosPlayer:
             with self.lock:
                 self.ctrl.add_multiple_to_queue([self._didl(i) for i in items])
 
-    def drop_upcoming(self, index):
-        """Remove every queue entry after `index` (0-based current position)."""
+    def _position(self, c):
+        return int(c.get_current_track_info().get("playlist_position") or 0) - 1
+
+    def drop_from(self, index):
+        """Remove queue entries from `index` onwards, re-reading the live position
+        first so the track that is actually playing is never removed."""
         with self.lock:
             c = self.ctrl
-            for i in range(c.queue_size - 1, index, -1):
+            start = max(index, self._position(c) + 1)
+            for i in range(c.queue_size - 1, start - 1, -1):
                 c.remove_from_queue(i)
+
+    def remove_index(self, index):
+        with self.lock:
+            c = self.ctrl
+            if index > self._position(c):
+                c.remove_from_queue(index)
+                return True
+            return False
+
+    def queue_uris(self):
+        with self.lock:
+            c, out = self.ctrl, []
+            while True:
+                batch = c.get_queue(start=len(out), max_items=100)
+                out += [(it.resources[0].uri if it.resources else "") for it in batch]
+                if len(batch) < 100:
+                    return out
 
     def play_index(self, index):
         with self.lock:
@@ -206,9 +228,26 @@ class MockPlayer:
         with self.lock:
             self.queue.extend(items)
 
-    def drop_upcoming(self, index):
+    def drop_from(self, index):
         with self.lock:
-            del self.queue[index + 1:]
+            del self.queue[max(index, self.index + 1):]
+
+    def remove_index(self, index):
+        """Like Sonos: removing the playing item stops and resets to item 1."""
+        with self.lock:
+            del self.queue[index]
+            if index == self.index:
+                self.index, self.state, self.paused_elapsed = 0, "STOPPED", 0
+            elif index < self.index:
+                self.index -= 1
+            return index > self.index
+
+    def queue_uris(self):
+        return [q["uri"] for q in self.queue]
+
+    def stop(self):
+        with self.lock:
+            self.state, self.paused_elapsed = "STOPPED", 0
 
     def play_index(self, index):
         with self.lock:
@@ -235,8 +274,9 @@ class MockPlayer:
         with self.lock:
             self._advance()
             cur = self.queue[self.index] if 0 <= self.index < len(self.queue) else {}
+            # duration 0, like a real Sonos reports for these http streams
             return {"state": self.state, "index": self.index, "uri": cur.get("uri", ""),
-                    "elapsed": int(self._elapsed()), "duration": self.track_seconds,
+                    "elapsed": int(self._elapsed()), "duration": 0,
                     "queue_size": len(self.queue)}
 
     def volumes(self):

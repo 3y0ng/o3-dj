@@ -14,6 +14,7 @@ to what is actually in the library.
 import bisect
 import subprocess
 import threading
+import time
 
 import numpy as np
 
@@ -58,6 +59,13 @@ def analyse(src, offset=30, seconds=60):
     }
 
 
+def probe_duration(src):
+    """Track length in seconds (Sonos reports 0:00 for these streams, so we measure it)."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                          "-of", "csv=p=0", str(src)], capture_output=True, text=True, timeout=30).stdout.strip()
+    return round(float(out), 1) if out and out != "N/A" else None
+
+
 def raw_score(f):
     clip = lambda v: min(max(v, 0.0), 1.0)
     return (0.5 * clip((f["bpm"] - 60) / 70)
@@ -74,20 +82,40 @@ class Meta:
         self.lock = threading.Lock()
         self._sorted = None
 
+    RETRY_FAILED_AFTER = 24 * 3600
+
     def has(self, track_id):
-        return track_id in self.file.data
+        """True if analysed, or failed recently enough not to retry yet."""
+        f = self.file.data.get(track_id) or {}
+        if "bpm" in f:
+            return True
+        return bool(f.get("failed")) and time.time() - f.get("at", 0) < self.RETRY_FAILED_AFTER
 
     def get(self, track_id):
         return self.file.data.get(track_id)
 
+    def duration(self, track_id):
+        return (self.file.data.get(track_id) or {}).get("duration")
+
     def put(self, track_id, features):
         with self.lock:
-            self.file.data[track_id] = features
+            entry = dict(self.file.data.get(track_id) or {})
+            if "bpm" in features:
+                entry.pop("failed", None)
+                entry.pop("at", None)
+            entry.update(features)
+            self.file.data[track_id] = entry
             self._sorted = None
         self.file.save()
 
+    def set_duration(self, track_id, seconds):
+        if seconds:
+            with self.lock:
+                self.file.data.setdefault(track_id, {})["duration"] = seconds
+            self.file.save()
+
     def mark_failed(self, track_id):
-        self.put(track_id, {"failed": True})
+        self.put(track_id, {"failed": True, "at": int(time.time())})
 
     def count(self):
         return sum(1 for f in self.file.data.values() if "bpm" in f)

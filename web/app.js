@@ -69,7 +69,7 @@ const ENC = {
   },
   energy: {
     step(d) {
-      const v = Math.round(clamp(S.inputs.energy_trim + d * 0.02, -0.4, 0.4) * 100) / 100;
+      const v = Math.round(clamp(S.inputs.energy_trim + d * 0.02, -0.5, 0.5) * 100) / 100;
       setInputs({ energy_trim: v });
       popup("energy", fmtSigned(v, 2), v > 0 ? "more upbeat" : v < 0 ? "more mellow" : "as the dj sees it", "var(--green)");
     },
@@ -160,7 +160,12 @@ function initKeys() {
   $("#k-skip").addEventListener("click", () => act("/api/control", { action: "skip" }));
   $("#k-up").addEventListener("click", () => act("/api/control", { action: "up" }));
   $("#k-down").addEventListener("click", () => act("/api/control", { action: "down" }));
-  $("#k-party").addEventListener("click", () => act("/api/speakers", { action: "party" }));
+  $("#k-party").addEventListener("click", () => {
+    const others = S.speakers.filter((sp) => !sp.in_group).map((sp) => sp.name);
+    if (!others.length) return;
+    if (!confirm(`Party mode pulls every room into the DJ's group:\n\n${others.join("\n")}\n\nAnything those rooms are playing now (e.g. Spotify) will stop. Continue?`)) return;
+    act("/api/speakers", { action: "party" });
+  });
   $("#k-scan").addEventListener("click", () => act("/api/speakers", { action: "discover" }));
 
   $("#add-form").addEventListener("submit", async (e) => {
@@ -301,6 +306,7 @@ function renderRooms(s) {
   $$(".room", wrap).forEach((b) => b.addEventListener("click", () => {
     const sp = S.speakers.find((x) => x.ip === b.dataset.ip);
     if (!sp || sp.coordinator) return;
+    if (!sp.in_group && !confirm(`Add ${sp.name} to the DJ group? Anything it's playing now will stop.`)) return;
     act("/api/speakers", { action: sp.in_group ? "leave" : "join", ip: sp.ip });
   }));
   const all = s.speakers.every((sp) => sp.in_group);

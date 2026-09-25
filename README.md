@@ -9,7 +9,7 @@ not yet wired to live data (clock aside). It runs on a laptop on the same Wi-Fi 
 
 ```bash
 pip3 install -r requirements.txt       # plus ffmpeg for tempo analysis: brew install ffmpeg
-python3 run.py --mock                  # silent: simulated speakers, safe to play with
+python3 run.py --mock                  # silent: simulated speakers, own state file, safe to play with
 python3 run.py                         # real Sonos (main room IP in config.json)
 ```
 
@@ -23,11 +23,13 @@ Open http://localhost:8330. Anyone on the same Wi-Fi can use the address printed
 | **green knob** energy | nudges how upbeat the picks are. Double-click resets. |
 | **white knob** occupancy | sets how full the space is (turning it switches **occ** on). Above 50% the music gets slightly louder and more upbeat. |
 | **orange knob** time | simulates a time of day so you can test evening vs afternoon. **clock** key returns to the real time. |
+
+Knob trims (volume/energy) reset automatically when the real clock moves into the next part of the day.
 | **genre** keys | chill / jazzy cafe / asian. You can pick several. The counts show cached/total tracks. |
 | **weather** keys | cloudy leans jazzier; rain leans jazzier, softer and calmer, and brings jazz in even if not selected. |
 | **play / skip** | play starts the DJ. **This replaces the main room's Sonos queue.** |
 | **love it / not this** | votes. "not this" skips; 3 net downvotes remove a track from rotation. You can also vote on "up next". |
-| **rooms** | tap a room to add it to / remove it from the synced group. **party mode** joins every speaker. |
+| **rooms** | tap a room to add it to / remove it from the synced group. **party mode** joins every speaker. Both ask first, because a room joining the group stops whatever it was playing. |
 
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
@@ -60,6 +62,10 @@ the upcoming picks are replaced within a couple of seconds and the current song 
   and switches back when it returns. The catalogue itself is snapshotted too.
 - **A track won't play**: it's skipped; after two failures it's rested for an hour.
 - **Someone plays Spotify on the speakers**: the DJ notices and stands down until you press play.
+- **Paused/stopped from the Sonos app**: the DJ respects it and waits for play.
+- **The DJ restarts**: it takes back its own queue and carries on, as long as the speaker is still playing it.
+- **Queue safety**: the DJ never edits the queue in the last 35 s of a track (Sonos is pre-loading the next one),
+  and if the speaker jumps back to an old track it skips forward to new music instead of replaying.
 
 The laptop has to stay on and awake (macOS: `caffeinate -i python3 run.py`), and
 allow incoming connections if the firewall asks, so the speakers can fetch cached files.

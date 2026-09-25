@@ -20,7 +20,7 @@ from pathlib import Path
 import requests
 
 from . import brain
-from .analysis import analyse
+from .analysis import analyse, probe_duration
 from .config import CACHE_DIR, LIBRARY
 
 log = logging.getLogger(__name__)
@@ -89,6 +89,7 @@ class Prefetcher:
         self.cfg = dj.cfg["cache"]
         self.has_ffmpeg = shutil.which("ffmpeg") is not None
         self.status = "idle"
+        self.no_duration = set()
 
     def _analyse(self, track, src):
         self.status = f"analysing {track.title}"
@@ -103,6 +104,11 @@ class Prefetcher:
         try:
             self.cache.download(track)
             log.info("cached (%s) %s", why, track.title)
+            if self.has_ffmpeg and not self.meta.duration(track.id):
+                try:
+                    self.meta.set_duration(track.id, probe_duration(self.cache.local_path(track)))
+                except Exception:
+                    pass
             return True
         except Exception as e:
             log.info("download failed for %s: %s", track.id, e)
@@ -112,6 +118,22 @@ class Prefetcher:
     def step(self):
         """Do one unit of work. Returns True if something was done."""
         online = self.dj.online
+        # 0. know how long queued tracks are (the DJ avoids editing the queue near a track's end)
+        if self.has_ffmpeg:
+            for tid in self.dj.queued_ids():
+                t = self.lib.get(tid)
+                if t and not self.meta.duration(t.id) and tid not in self.no_duration:
+                    src = self.cache.local_path(t) or (t.url if online else None)
+                    if src:
+                        self.status = f"measuring {t.title}"
+                        try:
+                            self.meta.set_duration(t.id, probe_duration(src))
+                        except Exception as e:
+                            log.info("duration probe failed for %s: %s", t.id, e)
+                        if not self.meta.duration(t.id):
+                            self.no_duration.add(tid)
+                        return True
+
         # 1. upcoming tracks first
         for tid in self.dj.queued_ids():
             t = self.lib.get(tid)

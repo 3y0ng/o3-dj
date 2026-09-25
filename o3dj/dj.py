@@ -1,6 +1,15 @@
 """The DJ: keeps a short rolling queue on the speakers, re-picks upcoming
 tracks when the atmosphere changes, ramps volume, and falls back to the
-local cache when the music source is unreachable."""
+local cache when the music source is unreachable.
+
+Queue safety rules (learned the hard way on a real Sonos):
+  - never edit the queue near the end of a track: Sonos pre-loads the next
+    item for crossfade, and removing it can stop playback and reset the
+    queue to item 1;
+  - if the queue does reset, jump to the first *unplayed* DJ track, never
+    replay from the top;
+  - only count a play once the speaker reports it PLAYING.
+"""
 
 import logging
 import socket
@@ -9,6 +18,7 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote, urlparse
 
 from . import brain
 from .config import DATA
@@ -19,7 +29,12 @@ log = logging.getLogger(__name__)
 MIME = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
         ".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "application/ogg"}
 DISCRETE_INPUTS = {"genres", "weather", "occupancy_enabled", "hour_override"}
+CONTINUOUS_INPUTS = {"energy_trim", "occupancy"}
 VOLUME_INPUTS = {"auto", "manual_volume", "volume_trim"}
+
+EDIT_GUARD_SECS = 35      # don't touch the next queue item this close to a track's end
+KNOB_SETTLE_SECS = 4      # wait this long after the last knob turn before re-picking
+SKIP_COOLDOWN_SECS = 3    # ignore double-taps on skip / not this
 
 
 def lan_ip_towards(host):
@@ -33,24 +48,31 @@ def lan_ip_towards(host):
 
 
 class DJ:
-    def __init__(self, cfg, player, library, cache, meta):
+    def __init__(self, cfg, player, library, cache, meta, state_file=DATA / "state.json"):
         self.cfg, self.player, self.library, self.cache, self.meta = cfg, player, library, cache, meta
-        self.store = JsonFile(DATA / "state.json", {"inputs": {}, "votes": {}, "history": []})
+        self.store = JsonFile(state_file, {"inputs": {}, "votes": {}, "history": []})
         saved = self.store.data.get("inputs") or {"genres": cfg["default_genres"]}
         self.inputs = brain.Inputs.from_dict(saved)
         self.votes = self.store.data.setdefault("votes", {})
         self.history = deque(self.store.data.get("history", []), maxlen=200)
+        self.was_running = bool(self.store.data.get("running"))
 
         self.lock = threading.RLock()
         self.running = False     # DJ is in charge of the speakers
         self.paused = False
         self.now_id = None
-        self.upcoming = []       # track ids queued after the current one
+        self.now_counted = False  # play recorded for now_id
+        self.now_max_elapsed = 0  # furthest point now_id was seen playing
+        self.upcoming = []       # track ids queued after the current one, in order
         self.uri_map = {}        # uri -> track id
+        self.id_uri = {}         # track id -> uri it was queued with
+        self.skip_on_start = set()  # downvoted too late to swap out
         self.failures = {}       # track id -> (count, last time)
         self.dirty_at = None     # atmosphere changed; re-pick upcoming soon
-        self.stalled_ticks = 0
+        self.stopped_ticks = 0
         self.foreign_ticks = 0
+        self.last_skip = 0.0
+        self.last_daypart = None
         self.status = {}
         self.speakers = []
         self.volumes = {}
@@ -58,14 +80,17 @@ class DJ:
         self.events = deque(maxlen=14)
         self.prefetcher = None
 
-        host = player.anchor_ip if player.live else "127.0.0.1"
-        self.base_url = f"http://{lan_ip_towards(host)}:{cfg['port']}"
+        self.base_url = self._base_url()
         self.event("DJ ready" + ("" if player.live else " (mock speakers)"))
 
     # -- helpers ---------------------------------------------------------------
     def event(self, msg):
         self.events.appendleft({"t": datetime.now().strftime("%H:%M"), "msg": msg})
         log.info(msg)
+
+    def _base_url(self):
+        host = self.player.anchor_ip if self.player.live else "127.0.0.1"
+        return f"http://{lan_ip_towards(host)}:{self.cfg['port']}"
 
     @property
     def online(self):
@@ -82,9 +107,14 @@ class DJ:
         n, when = self.failures.get(tid, (0, 0))
         return n >= 2 and time.time() - when < 3600
 
+    def title(self, tid):
+        t = self.library.get(tid) if tid else None
+        return t.title if t else (tid or "?")
+
     def save(self):
         self.store.data["inputs"] = self.inputs.to_dict()
         self.store.data["history"] = list(self.history)
+        self.store.data["running"] = self.running
         self.store.save()
 
     def compute(self):
@@ -105,12 +135,12 @@ class DJ:
         use_local = local and (self.cfg["cache"]["prefer_local"] or not t.url or not self.online)
         if use_local:
             prefix = "library/" + t.path if t.path else "cache/" + local.name
-            from urllib.parse import quote
             uri = f"{self.base_url}/media/{quote(prefix)}"
             ext = local.suffix.lower()
         else:
             uri, ext = t.url, Path(t.url).suffix.lower()
         self.uri_map[uri] = t.id
+        self.id_uri[t.id] = uri
         label = self.library.genres().get(t.genre, t.genre)
         return {"uri": uri, "title": t.title, "artist": t.artist or "O3 DJ",
                 "album": f"O3 DJ - {label}", "mime": MIME.get(ext, "audio/mpeg")}
@@ -130,6 +160,13 @@ class DJ:
             self.event("no playable tracks for this mood" if not out else "running low on tracks")
         return out
 
+    def seconds_left(self, st=None):
+        """Seconds until the current track ends, or None if its length is unknown."""
+        st = st or self.status
+        dur = self.meta.duration(self.now_id) if self.now_id else None
+        dur = dur or st.get("duration") or None
+        return None if not dur else dur - st.get("elapsed", 0)
+
     # -- transport ---------------------------------------------------------------
     def start(self):
         with self.lock:
@@ -138,10 +175,12 @@ class DJ:
             if not picks:
                 raise RuntimeError("Nothing playable - check the source or cache")
             self.uri_map.clear()
+            self.id_uri.clear()
             self.player.start([self.item_for(t) for t in picks])
             self.running, self.paused = True, False
-            self.now_id, self.upcoming = picks[0].id, [t.id for t in picks[1:]]
-            self._record_play(picks[0].id)
+            self._set_now(picks[0].id)
+            self.upcoming = [t.id for t in picks[1:]]
+            self.save()
             self.event(f"DJ started: {picks[0].title}")
 
     def play(self):
@@ -156,14 +195,19 @@ class DJ:
             self.player.pause()
             self.paused = True
 
+    def _cooldown(self):
+        if time.time() - self.last_skip < SKIP_COOLDOWN_SECS:
+            return True
+        self.last_skip = time.time()
+        return False
+
     def skip(self):
         with self.lock:
-            if not self.running:
+            if not self.running or self._cooldown():
                 return
             if self.now_id:
                 self._vote(self.now_id, "skip")
-                t = self.library.get(self.now_id)
-                self.event(f"skipped {t.title if t else ''}")
+                self.event(f"skipped {self.title(self.now_id)}")
             if not self.upcoming:
                 self._top_up(1)
             self.player.next()
@@ -174,50 +218,134 @@ class DJ:
             tid = tid or self.now_id
             if not tid:
                 return
+            if direction == "down" and tid == self.now_id and self.running and self._cooldown():
+                return
             self._vote(tid, direction)
-            t = self.library.get(tid)
-            name = t.title if t else tid
-            if direction == "down":
-                if brain.banned(self.votes.get(tid)):
-                    self.event(f"banned {name}")
-                else:
-                    self.event(f"downvoted {name}")
-                if tid == self.now_id and self.running:
-                    if not self.upcoming:
-                        self._top_up(1)
-                    self.player.next()
-                elif tid in self.upcoming:
-                    self.dirty_at = 0
-            else:
+            name = self.title(tid)
+            if direction != "down":
                 self.event(f"upvoted {name}")
+                return
+            self.event(f"{'banned' if brain.banned(self.votes.get(tid)) else 'downvoted'} {name}")
+            if tid == self.now_id and self.running:
+                if not self.upcoming:
+                    self._top_up(1)
+                self.player.next()
+            elif tid in self.upcoming:
+                self._swap_out(tid)
+
+    def _swap_out(self, tid):
+        """Replace one upcoming track, or skip it when it starts if it's too late to edit."""
+        uri = self.id_uri.get(tid)
+        uris = self.player.queue_uris()
+        idx = len(uris) - 1 - uris[::-1].index(uri) if uri in uris else None
+        st = self.player.status()
+        left = self.seconds_left(st)
+        next_up = idx == st["index"] + 1
+        if idx is None or idx <= st["index"] or (next_up and (left is None or left < EDIT_GUARD_SECS)):
+            self.skip_on_start.add(tid)
+            return
+        if self.player.remove_index(idx):
+            self.upcoming.remove(tid)
+            self._top_up(1)
+        else:
+            self.skip_on_start.add(tid)
 
     def _vote(self, tid, key):
         v = self.votes.setdefault(tid, {})
         v[key] = v.get(key, 0) + 1
         self.save()
 
-    def _record_play(self, tid):
-        self._vote(tid, "plays")
-        self.history.append({"id": tid, "at": int(time.time())})
-        t = self.library.get(tid)
+    def _set_now(self, tid):
+        self.now_id, self.now_counted, self.now_max_elapsed = tid, False, 0
+
+    def _count_play(self):
+        if self.now_counted or not self.now_id:
+            return
+        self.now_counted = True
+        self._vote(self.now_id, "plays")
+        self.history.append({"id": self.now_id, "at": int(time.time())})
+        t = self.library.get(self.now_id)
         if t:
             self.cache.touch(t)
         self.save()
 
     def _top_up(self, n):
-        picks = self.pick(n)
+        picks = self.pick(n) if n > 0 else []
         if picks:
             self.player.append([self.item_for(t) for t in picks])
             self.upcoming += [t.id for t in picks]
+        return picks
 
     def refresh_upcoming(self):
-        """Replace queued-but-not-started tracks with fresh picks for the current mood."""
+        """Replace queued-but-not-started tracks with picks for the current mood.
+
+        Returns False if it's not safe right now (retry next tick)."""
         with self.lock:
-            if not self.running or not self.status:
-                return
-            self.player.drop_upcoming(self.status["index"])
-            self.upcoming = []
-            self._top_up(self.cfg["queue_ahead"])
+            if not self.running:
+                return True
+            st = self.player.status()
+            self.status = st
+            if st["state"] == "TRANSITIONING":
+                return False
+            left = self.seconds_left(st)
+            if left is not None and left < EDIT_GUARD_SECS:
+                return False  # next track may already be pre-loading; wait for it to start
+            keep = 1 if left is None else 0  # unknown length: leave the next track alone
+            self.player.drop_from(st["index"] + 1 + keep)
+            self.upcoming = self.upcoming[:keep]
+            self._top_up(self.cfg["queue_ahead"] - keep)
+            return True
+
+    def _jump_to_next_unplayed(self):
+        """After a queue reset / failure, carry on with the first DJ track not yet played."""
+        uris = self.player.queue_uris()
+        for tid in list(self.upcoming):
+            uri = self.id_uri.get(tid)
+            if uri in uris:
+                self.player.play_index(len(uris) - 1 - uris[::-1].index(uri))
+                return True
+        if self._top_up(1):
+            self.player.play_index(len(self.player.queue_uris()) - 1)
+            return True
+        self.running = False
+        self.save()
+        self.event("nothing left to play - DJ stopped")
+        return False
+
+    def adopt(self):
+        """After a restart, take back control of a queue this DJ built earlier."""
+        with self.lock:
+            if not self.was_running:
+                return False
+            try:
+                uris, st = self.player.queue_uris(), self.player.status()
+            except Exception:
+                return False
+            lookup = {}
+            for t in self.library.all():
+                if t.url:
+                    lookup[t.url] = t.id
+                    lookup["/media/cache/" + quote(self.cache.name_for(t))] = t.id
+                if t.path:
+                    lookup["/media/library/" + quote(t.path)] = t.id
+            key = lambda u: u if u in lookup else urlparse(u).path
+            ids = [lookup.get(key(u)) for u in uris]
+            i = st["index"]
+            # only if the speaker is really playing our queue (not e.g. Spotify on the same group)
+            if not (0 <= i < len(ids)) or not ids[i] or uris[i] != st["uri"]:
+                self.running = False
+                self.save()
+                return False
+            for u, tid in zip(uris, ids):
+                if tid:
+                    self.uri_map[u], self.id_uri[tid] = tid, u
+            self.running = True
+            self.paused = st["state"] != "PLAYING"
+            self.now_id, self.now_counted, self.now_max_elapsed = ids[i], True, st["elapsed"]
+            self.upcoming = [x for x in ids[i + 1:] if x]
+            self.status = st
+            self.event(f"picked up where it left off: {self.title(ids[i])}")
+            return True
 
     # -- inputs --------------------------------------------------------------------
     def set_inputs(self, patch):
@@ -235,7 +363,7 @@ class DJ:
                 elif k == "volume_trim":
                     v = int(max(-30, min(30, v)))
                 elif k == "energy_trim":
-                    v = round(max(-0.4, min(0.4, float(v))), 2)
+                    v = round(max(-0.5, min(0.5, float(v))), 2)
                 elif k == "hour_override" and v is not None:
                     v = float(v) % 24
                 if getattr(self.inputs, k) != v:
@@ -245,8 +373,10 @@ class DJ:
                 return
             self.save()
             self.targets = self.compute()
-            if changed & DISCRETE_INPUTS or "energy_trim" in changed or "occupancy" in changed:
-                self.dirty_at = 0 if changed & DISCRETE_INPUTS else time.time()
+            if changed & DISCRETE_INPUTS:
+                self.dirty_at = 0
+            elif changed & CONTINUOUS_INPUTS:
+                self.dirty_at = time.time()
             if changed & VOLUME_INPUTS and self.running:
                 self._apply_volume(max_step=100)
 
@@ -264,6 +394,7 @@ class DJ:
             elif action == "anchor":
                 p.set_anchor(ip)
                 self.running = False
+                self.save()
                 self.event("switched main room - press play to start")
             elif action == "discover":
                 p.discover()
@@ -285,23 +416,58 @@ class DJ:
                 vols[ip] = cur + step
         self.volumes = vols
 
+    # -- following the speaker --------------------------------------------------------
     def refresh_status(self):
+        """Called after a button press so the UI updates straight away."""
         with self.lock:
             try:
                 self.status = self.player.status()
             except Exception as e:
                 self.player.error = str(e)[:160]
                 return
-            if self.running:
-                self._sync_now(self.uri_map.get(self.status["uri"]))
+            if self.running and self.status["state"] == "PLAYING":
+                self._on_playing(self.status, self.uri_map.get(self.status["uri"]))
 
-    def _sync_now(self, cur):
-        """Note a track change reported by the speaker."""
-        if cur and cur != self.now_id:
-            if cur in self.upcoming:
-                self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
-            self.now_id = cur
-            self._record_play(cur)
+    def _on_playing(self, st, cur):
+        """Track the speaker while it plays. Returns True if it had to intervene."""
+        if self.paused:
+            self.paused = False
+        if cur is None or cur == self.now_id:
+            if cur:
+                self.now_max_elapsed = max(self.now_max_elapsed, st["elapsed"])
+                self._count_play()
+            return False
+        if cur in self.upcoming:
+            self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
+            self._set_now(cur)
+            self._count_play()
+            if cur in self.skip_on_start:
+                self.skip_on_start.discard(cur)
+                self.event(f"skipping downvoted {self.title(cur)}")
+                if not self.upcoming:
+                    self._top_up(1)
+                self.player.next()
+                return True
+            return False
+        # An earlier DJ track: the queue reset to the top, or someone tapped an old track.
+        self.event(f"queue jumped back to {self.title(cur)} - carrying on with new music")
+        self._jump_to_next_unplayed()
+        return True
+
+    def _on_stopped(self, st, cur):
+        left = self.seconds_left(st) if cur == self.now_id else None
+        mid_song = cur == self.now_id and self.now_max_elapsed >= 10 and (left is None or left > 15)
+        if mid_song and self.online:
+            # Someone stopped it (Sonos app, grouping change). Respect that.
+            self.paused = True
+            self.event("stopped from the Sonos app - press play to resume")
+            return
+        if cur == self.now_id and self.now_max_elapsed < 3:
+            self.note_failure(self.now_id)
+            self.event(f"couldn't play {self.title(self.now_id)} - moving on")
+        elif cur != self.now_id:
+            self.event("speaker queue reset - carrying on")
+        self._jump_to_next_unplayed()
 
     # -- main loop ------------------------------------------------------------------
     def tick(self, n):
@@ -311,22 +477,38 @@ class DJ:
             st = self.player.status()
             self.status = st
             self.targets = self.compute()
+            self._check_daypart()
             if not self.running:
                 if n % 5 == 0:
                     self.volumes = self.player.volumes()
                 return
 
             cur = self.uri_map.get(st["uri"])
-            if st["uri"] and cur is None and st["state"] == "PLAYING":
+            state = st["state"]
+            if st["uri"] and cur is None and state == "PLAYING":
                 self.foreign_ticks += 1
                 if self.foreign_ticks >= 3:
                     self.running = False
+                    self.save()
                     self.event("speakers taken over by another app - DJ stood down")
-                    return
-            else:
-                self.foreign_ticks = 0
+                return
+            self.foreign_ticks = 0
 
-            self._sync_now(cur)
+            if state == "PLAYING":
+                self.stopped_ticks = 0
+                if self._on_playing(st, cur):
+                    return
+            elif state == "PAUSED_PLAYBACK":
+                self.stopped_ticks = 0
+                if not self.paused:
+                    self.paused = True
+                    self.event("paused from the Sonos app")
+            elif state == "STOPPED" and not self.paused:
+                self.stopped_ticks += 1
+                if self.stopped_ticks >= 2:
+                    self.stopped_ticks = 0
+                    self._on_stopped(st, cur)
+                    return
 
             remaining = st["queue_size"] - st["index"] - 1
             if len(self.upcoming) > remaining:
@@ -334,29 +516,34 @@ class DJ:
             if remaining < self.cfg["queue_ahead"]:
                 self._top_up(self.cfg["queue_ahead"] - remaining)
 
-            if self.dirty_at is not None and time.time() - self.dirty_at > 2.5:
-                self.dirty_at = None
-                self.refresh_upcoming()
+            if self.dirty_at is not None and time.time() - self.dirty_at > KNOB_SETTLE_SECS:
+                if self.refresh_upcoming():
+                    self.dirty_at = None
 
-            # A stream that won't play (bad URL, source down) leaves the speaker STOPPED.
-            if st["state"] == "STOPPED" and not self.paused:
-                self.stalled_ticks += 1
-                if self.stalled_ticks >= 2:
-                    self.stalled_ticks = 0
-                    if self.now_id:
-                        self.note_failure(self.now_id)
-                        t = self.library.get(self.now_id)
-                        self.event(f"couldn't play {t.title if t else self.now_id} - moving on")
-                    if st["queue_size"] - st["index"] - 1 <= 0:
-                        self._top_up(1)
-                    self.player.play_index(max(st["index"] + 1, 0))
-            else:
-                self.stalled_ticks = 0
-
-            if st["state"] == "PLAYING":
+            if state == "PLAYING":
                 self._apply_volume()
 
+    def _check_daypart(self):
+        """When the real clock moves into a new part of the day: re-pick, and let knob trims expire."""
+        if self.inputs.hour_override is not None:
+            return
+        dp = self.targets["daypart"]
+        if self.last_daypart and dp != self.last_daypart:
+            msg = f"now {dp}"
+            if self.cfg.get("reset_trims_on_daypart", True) and (self.inputs.energy_trim or self.inputs.volume_trim):
+                self.inputs.energy_trim, self.inputs.volume_trim = 0.0, 0
+                self.save()
+                self.targets = self.compute()
+                msg += " - knob trims reset"
+            self.event(msg)
+            self.dirty_at = 0
+        self.last_daypart = dp
+
     def run(self, interval=2.0):
+        try:
+            self.adopt()
+        except Exception:
+            log.exception("couldn't adopt existing queue")
         n = 0
         while True:
             try:
@@ -386,6 +573,11 @@ class DJ:
                     self.event("music source back online" if now else "music source OFFLINE - playing from cache")
                     self.dirty_at = 0
                     was = now
+                base = self._base_url()
+                if base != self.base_url and not base.startswith("http://127."):
+                    self.event(f"this computer's address changed to {base} - re-queuing")
+                    self.base_url = base
+                    self.dirty_at = 0
             except Exception:
                 log.exception("health check failed")
 
@@ -399,6 +591,7 @@ class DJ:
         v = self.votes.get(tid, {})
         return {**t.to_dict(), "genre_label": self.library.genres().get(t.genre, t.genre),
                 "energy": None if e is None else round(e, 2), "bpm": f.get("bpm"),
+                "duration": f.get("duration"),
                 "up": v.get("up", 0), "down": v.get("down", 0), "plays": v.get("plays", 0),
                 "cached": self.cache.has(t)}
 
@@ -411,11 +604,14 @@ class DJ:
                 pg = per_genre[t.genre]
                 pg["tracks"] += 1
                 pg["cached"] += self.cache.has(t)
+            status = dict(self.status)
+            if self.now_id and not status.get("duration"):
+                status["duration"] = int(self.meta.duration(self.now_id) or 0)
             return {
                 "live": self.player.live,
                 "running": self.running,
                 "paused": self.paused,
-                "status": self.status,
+                "status": status,
                 "now": self.track_info(self.now_id),
                 "upcoming": [self.track_info(i) for i in self.upcoming],
                 "inputs": self.inputs.to_dict(),

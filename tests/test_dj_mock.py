@@ -1,14 +1,14 @@
 """End-to-end DJ behaviour against the silent MockPlayer (no network, no speakers)."""
 
 import json
+import time
 
 import pytest
 
-from o3dj import brain, dj as dj_mod
+from o3dj import dj as dj_mod
 from o3dj.config import ROOT
 from o3dj.library import Track
 from o3dj.player import MockPlayer
-from o3dj.store import JsonFile
 
 CFG = json.loads((ROOT / "config.json").read_text())
 
@@ -40,55 +40,198 @@ class FakeCache:
     def __init__(self): self.cached = set()
     def has(self, t): return t.id in self.cached
     def local_path(self, t): return None
+    def name_for(self, t): return t.id.replace(":", "_") + ".mp3"
     def touch(self, t): pass
     def usage_mb(self): return 0
 
 
 class FakeMeta:
+    def __init__(self): self.durations = {}
     def energy(self, i): return None
     def get(self, i): return None
+    def duration(self, i): return self.durations.get(i)
     def count(self): return 0
 
 
+def make_dj(tmp_path, player=None):
+    return dj_mod.DJ(CFG, player or MockPlayer(track_seconds=1000), FakeLibrary(), FakeCache(), FakeMeta(),
+                     state_file=tmp_path / "state.json")
+
+
 @pytest.fixture
-def dj(tmp_path, monkeypatch):
-    real = JsonFile
-    monkeypatch.setattr(dj_mod, "JsonFile", lambda path, default: real(tmp_path / path.name, default))
-    lib = FakeLibrary()
-    d = dj_mod.DJ(CFG, MockPlayer(track_seconds=1000), lib, FakeCache(), FakeMeta())
-    return d
+def dj(tmp_path):
+    return make_dj(tmp_path)
 
 
-def test_start_queues_ahead_and_plays(dj):
+def started(dj, duration=200):
+    """Start the DJ with known track lengths and let one tick observe it."""
+    for t in dj.library.all():
+        dj.meta.durations[t.id] = duration
     dj.start()
+    dj.tick(0)
+    return dj
+
+
+def at_elapsed(dj, secs):
+    dj.player.started_at = time.monotonic() - secs
+
+
+def settle(dj, monkeypatch):
+    """Make any pending re-pick due."""
+    real = time.time
+    monkeypatch.setattr(dj_mod.time, "time", lambda: real() + 60)
+
+
+# -- basics ------------------------------------------------------------------------
+
+def test_start_queues_ahead_and_counts_play_once_playing(dj):
+    dj.start()
+    assert dj.votes == {}  # nothing counted until the speaker says PLAYING
     dj.tick(0)
     assert dj.status["state"] == "PLAYING"
     assert len(dj.upcoming) == CFG["queue_ahead"]
-    assert dj.library.get(dj.now_id).genre in dj.inputs.genres
+    assert dj.votes[dj.now_id]["plays"] == 1
+    dj.tick(1)
+    assert dj.votes[dj.now_id]["plays"] == 1
 
 
-def test_skip_advances_and_tops_up(dj):
-    dj.start(); dj.tick(0)
+def test_skip_advances_tops_up_and_has_cooldown(dj):
+    started(dj)
     first, nxt = dj.now_id, dj.upcoming[0]
     dj.skip(); dj.tick(1)
-    assert dj.now_id == nxt and dj.now_id != first
+    assert dj.now_id == nxt and dj.votes[first]["skip"] == 1
     assert len(dj.upcoming) == CFG["queue_ahead"]
-    assert dj.votes[first]["skip"] == 1
+    dj.skip(); dj.tick(2)  # double tap within cooldown is ignored
+    assert dj.now_id == nxt
 
 
 def test_downvote_skips_current(dj):
-    dj.start(); dj.tick(0)
+    started(dj)
     cur = dj.now_id
     dj.vote("down"); dj.tick(1)
     assert dj.now_id != cur and dj.votes[cur]["down"] == 1
 
 
+def test_mock_and_live_state_are_separate(tmp_path):
+    a = make_dj(tmp_path)
+    started(a)
+    b = dj_mod.DJ(CFG, MockPlayer(), FakeLibrary(), FakeCache(), FakeMeta(), state_file=tmp_path / "other.json")
+    assert b.votes == {} and len(b.history) == 0
+
+
+# -- re-picking safely ---------------------------------------------------------------
+
 def test_genre_change_repicks_upcoming(dj, monkeypatch):
-    dj.start(); dj.tick(0)
+    started(dj)
+    at_elapsed(dj, 30)
     dj.set_inputs({"genres": ["asian"]})
-    monkeypatch.setattr(dj_mod.time, "time", lambda: 10**10)
+    settle(dj, monkeypatch)
     dj.tick(1)
     assert all(dj.library.get(i).genre == "asian" for i in dj.upcoming)
+    assert dj.player.queue_uris()[dj.status["index"]] == dj.id_uri[dj.now_id]
+
+
+def test_no_queue_edits_near_end_of_track(dj, monkeypatch):
+    started(dj)
+    before = list(dj.upcoming)
+    at_elapsed(dj, 180)  # 20 s left: next track may be pre-loading
+    dj.set_inputs({"genres": ["asian"]})
+    settle(dj, monkeypatch)
+    dj.tick(1)
+    assert dj.upcoming == before and dj.dirty_at is not None  # deferred, not dropped
+    assert dj.status["state"] == "PLAYING"
+
+
+def test_unknown_length_keeps_next_track(dj, monkeypatch):
+    started(dj, duration=None)
+    nxt = dj.upcoming[0]
+    dj.set_inputs({"genres": ["asian"]})
+    settle(dj, monkeypatch)
+    dj.tick(1)
+    assert dj.upcoming[0] == nxt
+    assert all(dj.library.get(i).genre == "asian" for i in dj.upcoming[1:])
+
+
+def test_drop_never_removes_playing_track(dj):
+    started(dj)
+    dj.player.drop_from(0)
+    assert dj.player.status()["state"] == "PLAYING"
+    assert dj.player.queue_uris() == [dj.id_uri[dj.now_id]]
+
+
+# -- recovery ---------------------------------------------------------------------
+
+def test_queue_reset_jumps_to_next_unplayed_without_fake_play(dj):
+    started(dj)
+    first = dj.now_id
+    dj.skip(); dj.tick(1)
+    second, third = dj.now_id, dj.upcoming[0]
+    plays_before = dict((k, v.get("plays")) for k, v in dj.votes.items())
+    # Sonos drops back to item 1 and stops (what we saw live)
+    dj.player.index, dj.player.state = 0, "STOPPED"
+    dj.tick(2); dj.tick(3)
+    dj.tick(4)
+    assert dj.now_id not in (first, second)
+    assert dj.now_id == third
+    assert dj.votes[first].get("plays") == plays_before[first]  # no fake replay counted
+    assert first not in dj.failures
+
+
+def test_old_track_playing_jumps_forward(dj):
+    started(dj)
+    first = dj.now_id
+    dj.skip(); dj.tick(1)
+    upcoming = list(dj.upcoming)
+    dj.player.play_index(0)  # queue reset straight into PLAYING item 1
+    dj.tick(2); dj.tick(3)
+    assert dj.now_id == upcoming[0] and dj.votes[first]["plays"] == 1
+
+
+def test_failed_stream_is_blamed_and_skipped(dj):
+    started(dj)
+    bad, nxt = dj.now_id, dj.upcoming[0]
+    dj.now_max_elapsed = 0
+    dj.player.stop()
+    dj.tick(1); dj.tick(2); dj.tick(3)
+    assert dj.failures[bad][0] == 1 and dj.now_id == nxt
+
+
+def test_stop_from_sonos_app_is_respected(dj):
+    started(dj)
+    at_elapsed(dj, 60); dj.tick(1)
+    cur = dj.now_id
+    dj.player.stop()
+    dj.tick(2); dj.tick(3); dj.tick(4)
+    assert dj.paused and dj.now_id == cur and dj.player.status()["state"] == "STOPPED"
+    assert cur not in dj.failures
+
+
+def test_pause_from_sonos_app_is_mirrored(dj):
+    started(dj)
+    dj.player.pause(); dj.tick(1)
+    assert dj.paused
+    dj.player.play(); dj.tick(2)
+    assert not dj.paused
+
+
+def test_downvote_upcoming_swaps_just_that_track(dj):
+    started(dj)
+    at_elapsed(dj, 30)
+    keep, bad = dj.upcoming[0], dj.upcoming[1]
+    dj.vote("down", bad)
+    assert keep in dj.upcoming and bad not in dj.upcoming
+    assert len(dj.upcoming) == CFG["queue_ahead"]
+    assert dj.id_uri[bad] not in dj.player.queue_uris()
+
+
+def test_downvote_next_track_too_late_skips_it_on_arrival(dj):
+    started(dj)
+    at_elapsed(dj, 190)
+    nxt = dj.upcoming[0]
+    dj.vote("down", nxt)
+    assert nxt in dj.upcoming  # too late to edit safely
+    dj.player.next(); dj.tick(1); dj.tick(2)
+    assert dj.now_id != nxt
 
 
 def test_offline_source_only_plays_cached(dj):
@@ -103,6 +246,45 @@ def test_offline_source_only_plays_cached(dj):
         dj.library.chillify.online = True
 
 
+# -- time of day ------------------------------------------------------------------
+
+def test_daypart_change_resets_trims_and_repicks(dj, monkeypatch):
+    started(dj)
+    at_elapsed(dj, 30)
+    dj.set_inputs({"energy_trim": -0.4, "volume_trim": -7})
+    dj.dirty_at = None
+    dj.last_daypart = "some earlier daypart"
+    calls = []
+    monkeypatch.setattr(dj, "refresh_upcoming", lambda: calls.append(1) or True)
+    dj.tick(1)
+    assert dj.inputs.energy_trim == 0 and dj.inputs.volume_trim == 0
+    assert calls and "trims reset" in dj.events[0]["msg"]
+
+
+def test_simulated_time_does_not_reset_trims(dj):
+    started(dj)
+    dj.set_inputs({"energy_trim": -0.3, "hour_override": 21})
+    dj.last_daypart = "afternoon"
+    dj.tick(1)
+    assert dj.inputs.energy_trim == -0.3
+
+
+# -- restart ------------------------------------------------------------------------
+
+def test_restart_adopts_existing_queue(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    a = make_dj(tmp_path, player)
+    started(a)
+    now, upcoming = a.now_id, list(a.upcoming)
+    b = make_dj(tmp_path, player)  # same state file, same speaker
+    assert b.adopt()
+    assert b.running and b.now_id == now and b.upcoming == upcoming
+    b.tick(0)
+    assert b.running and b.foreign_ticks == 0
+
+
+# -- volume -------------------------------------------------------------------------
+
 def test_manual_volume_applies_immediately(dj):
     dj.start()
     dj.set_inputs({"auto": False, "manual_volume": 40})
@@ -112,8 +294,17 @@ def test_manual_volume_applies_immediately(dj):
 
 
 def test_auto_volume_ramps_gently(dj):
-    dj.start(); dj.tick(0)
+    started(dj)
     ip = dj.player.anchor_ip
     dj.player.set_volume(ip, dj.targets["volume"] + 10)
     dj.tick(1)
     assert dj.player.volumes()[ip] == dj.targets["volume"] + 8
+
+
+def test_restart_does_not_adopt_when_something_else_is_playing(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    a = make_dj(tmp_path, player)
+    started(a)
+    player.queue[player.index] = dict(player.queue[player.index], uri="x-sonos-vli:spotify")  # Spotify took over
+    b = make_dj(tmp_path, player)
+    assert not b.adopt() and not b.running
