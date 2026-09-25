@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "o3-dj-mock", "runtimeExecutable": "python3", "runtimeArgs": ["run.py", "--mock", "--port", "8331"], "port": 8331 },
+    { "name": "o3-dj-live", "runtimeExecutable": "python3", "runtimeArgs": ["run.py"], "port": 8330 }
+  ]
+}

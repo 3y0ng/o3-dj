@@ -1,0 +1,4 @@
+flask>=2.2
+soco>=0.30
+requests>=2.28
+numpy>=1.24

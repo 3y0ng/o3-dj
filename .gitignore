@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+config.local.json
+data/
+library/*
+!library/README.md
+!library/custom_tracks.example.json

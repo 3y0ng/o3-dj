@@ -1,0 +1,52 @@
+{
+  "port": 8330,
+  "coordinator_ip": "192.168.1.136",
+
+  "min_volume": 8,
+  "max_volume": 60,
+  "room_volume_offsets": {},
+  "crossfade": true,
+  "queue_ahead": 2,
+
+  "genres": {
+    "chill":      { "label": "Chill",      "sources": { "chillify": ["chill"] } },
+    "jazzy_cafe": { "label": "Jazzy Cafe", "sources": { "chillify": ["jazzy", "cafe"] } },
+    "asian":      { "label": "Asian",      "sources": { "chillify": ["asian"] } }
+  },
+  "default_genres": ["chill"],
+
+  "daypart_curve": [
+    [0,  0.25, 22, "late night"],
+    [6,  0.35, 26, "early morning"],
+    [9,  0.50, 32, "morning"],
+    [13, 0.70, 42, "afternoon"],
+    [16, 0.72, 42, "afternoon"],
+    [18, 0.55, 35, "early evening"],
+    [21, 0.38, 28, "evening"],
+    [24, 0.25, 22, "late night"]
+  ],
+
+  "weather": {
+    "clear":  { "energy": 0.00,  "volume": 0,  "boost": {} },
+    "cloudy": { "energy": -0.03, "volume": 0,  "boost": { "jazzy_cafe": 1.4 } },
+    "rain":   { "energy": -0.08, "volume": -2, "boost": { "jazzy_cafe": 2.2 } }
+  },
+  "unselected_boost_base": 0.35,
+
+  "occupancy": { "threshold": 50, "max_energy": 0.12, "max_volume": 6 },
+
+  "cache": {
+    "max_mb": 2000,
+    "warm_per_genre": 40,
+    "prefer_local": true,
+    "analyse_remote": true
+  },
+
+  "chillify": {
+    "enabled": true,
+    "catalog_url": "https://chillify.me/api/library",
+    "track_base": "https://chillify.me/tracks/"
+  },
+
+  "mock_track_seconds": 45
+}

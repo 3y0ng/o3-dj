@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>O3 DJ</title>
+<link rel="stylesheet" href="/ui/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ff6b2c'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23111'/%3E%3C/svg%3E">
+</head>
+<body>
+<main class="stage">
+
+  <section class="device" id="device" aria-label="O3 DJ controller">
+    <div class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+    <!-- left: grille + wordmark -->
+    <div class="brand">
+      <div class="grille" aria-hidden="true"></div>
+      <div class="wordmark">o3<span>dj</span></div>
+      <div class="model">study cafe sound system · <span id="mode-tag">—</span></div>
+      <div class="power"><span class="led" id="led-power"></span>on air</div>
+    </div>
+
+    <!-- screen -->
+    <div class="bezel">
+      <div class="screen" id="screen">
+        <div class="scr-top">
+          <span id="s-clock" class="c-white">--:--</span>
+          <span id="s-daypart" class="c-dim">—</span>
+          <span id="s-weather" class="c-blue"></span>
+          <span id="s-occ" class="c-dim"></span>
+          <span class="spacer"></span>
+          <span id="s-src" class="pill">src</span>
+          <span id="s-cache" class="c-dim">cache 0</span>
+        </div>
+
+        <div class="scr-main">
+          <svg class="reels" id="reels" viewBox="0 0 120 70" aria-hidden="true">
+            <line x1="22" y1="58" x2="98" y2="58" class="tape"/>
+            <g class="reel r1"><circle cx="30" cy="32" r="24" class="reel-ring c-blue-s"/><circle cx="30" cy="32" r="6" class="hub"/>
+              <path d="M30 14v8M30 42v8M14 32h8M38 32h8" class="spoke c-blue-s"/></g>
+            <g class="reel r2"><circle cx="90" cy="32" r="18" class="reel-ring c-orange-s"/><circle cx="90" cy="32" r="5" class="hub"/>
+              <path d="M90 19v7M90 38v7M77 32h7M96 32h7" class="spoke c-orange-s"/></g>
+          </svg>
+
+          <div class="np">
+            <div class="np-state c-dim" id="s-state">standby</div>
+            <div class="np-title" id="s-title">press ▶ to start the dj</div>
+            <div class="np-meta c-dim" id="s-meta">&nbsp;</div>
+
+            <div class="meter" title="energy: target vs current track">
+              <label>nrg</label>
+              <div class="bar" id="m-energy"><i class="fill c-green-b" id="m-energy-track"></i><b class="target" id="m-energy-target"></b></div>
+              <span id="m-energy-val" class="c-green">—</span>
+            </div>
+            <div class="meter" title="volume: target vs speakers">
+              <label>vol</label>
+              <div class="segs" id="m-vol"></div>
+              <span id="m-vol-val" class="c-blue">—</span>
+            </div>
+            <div class="meter" title="genre mix">
+              <label>mix</label>
+              <div class="mix" id="m-mix"></div>
+              <span class="c-dim" id="m-mix-val"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="scr-bottom"><div class="ticker" id="s-ticker"><span></span></div></div>
+
+        <div class="popup" id="popup" aria-live="polite"><div class="pop-label"></div><div class="pop-val"></div><div class="pop-sub"></div></div>
+      </div>
+    </div>
+
+    <!-- encoders -->
+    <div class="encoders">
+      <div class="enc" data-enc="volume"  data-color="blue"   tabindex="0" role="slider" aria-label="volume"><div class="knob"><div class="cap"></div></div><span>volume</span></div>
+      <div class="enc" data-enc="energy"  data-color="green"  tabindex="0" role="slider" aria-label="energy"><div class="knob"><div class="cap"></div></div><span>energy</span></div>
+      <div class="enc" data-enc="occ"     data-color="white"  tabindex="0" role="slider" aria-label="occupancy"><div class="knob"><div class="cap"></div></div><span>occupancy</span></div>
+      <div class="enc" data-enc="time"    data-color="orange" tabindex="0" role="slider" aria-label="time of day"><div class="knob"><div class="cap"></div></div><span>time</span></div>
+    </div>
+
+    <!-- keys -->
+    <div class="keys">
+      <div class="kgroup">
+        <h3>genre</h3>
+        <div class="krow" id="genre-keys"></div>
+      </div>
+      <div class="kgroup">
+        <h3>weather</h3>
+        <div class="krow">
+          <button class="key" data-weather="clear"><span class="led"></span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg><em>clear</em></button>
+          <button class="key" data-weather="cloudy"><span class="led"></span><svg viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 9.5 4.3 4.3 0 0 0 7 18z"/></svg><em>cloudy</em></button>
+          <button class="key" data-weather="rain"><span class="led"></span><svg viewBox="0 0 24 24"><path d="M7 14h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 5.5 4.3 4.3 0 0 0 7 14z"/><path d="M8 17l-1 3M12 17l-1 3M16 17l-1 3"/></svg><em>rain</em></button>
+        </div>
+      </div>
+      <div class="kgroup">
+        <h3>mood</h3>
+        <div class="krow">
+          <button class="key" id="k-occ" title="let occupancy change the music"><span class="led"></span><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M3 20c0-3 2.2-5 5-5s5 2 5 5M11 20c0-3 2.2-5 5-5s5 2 5 5"/></svg><em>occ</em></button>
+          <button class="key" id="k-auto" title="automatic volume from atmosphere"><span class="led"></span><svg viewBox="0 0 24 24"><path d="M5 19L12 4l7 15M8 13h8"/></svg><em>auto vol</em></button>
+          <button class="key" id="k-clock" title="follow the real clock"><span class="led"></span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg><em>clock</em></button>
+        </div>
+      </div>
+      <div class="kgroup">
+        <h3>transport</h3>
+        <div class="krow">
+          <button class="key dark" id="k-play"><span class="led"></span><svg viewBox="0 0 24 24" id="play-icon"><path d="M8 5l11 7-11 7z" class="solid"/></svg><em>play</em></button>
+          <button class="key" id="k-skip"><svg viewBox="0 0 24 24"><path d="M5 5l9 7-9 7zM17 5v14" class="solid"/></svg><em>skip</em></button>
+          <button class="key" id="k-up"><svg viewBox="0 0 24 24"><path d="M12 5l7 11H5z" class="solid"/></svg><em>love it</em></button>
+          <button class="key" id="k-down"><svg viewBox="0 0 24 24"><path d="M12 19L5 8h14z" class="solid"/></svg><em>not this</em></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- rooms keyboard -->
+    <div class="rooms">
+      <div class="rooms-head">
+        <h3>rooms</h3>
+        <button class="mini" id="k-party" title="join every speaker into one synced group">party mode</button>
+        <button class="mini" id="k-scan" title="look for speakers again">scan</button>
+      </div>
+      <div class="keyboard" id="room-keys"></div>
+    </div>
+  </section>
+
+  <!-- label-maker strip: queue, log, add tracks -->
+  <section class="strip">
+    <div class="tape-card">
+      <h4>up next</h4>
+      <ol id="upnext"></ol>
+    </div>
+    <div class="tape-card">
+      <h4>dj log</h4>
+      <ul id="log"></ul>
+    </div>
+    <div class="tape-card">
+      <h4>add a track</h4>
+      <form id="add-form">
+        <input name="url" type="url" placeholder="https://… .mp3 stream url" required>
+        <input name="title" placeholder="title (optional)">
+        <div class="row"><select name="genre" id="add-genre"></select><button class="mini" type="submit">add</button></div>
+        <p class="hint">or drop files into <code>library/&lt;genre&gt;/</code></p>
+        <p class="hint err" id="add-msg"></p>
+      </form>
+    </div>
+  </section>
+
+  <p class="foot" id="foot">connecting…</p>
+</main>
+<script src="/ui/app.js"></script>
+</body>
+</html>
