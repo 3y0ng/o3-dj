@@ -4,6 +4,10 @@ A live DJ for the O3 study cafes. It picks music to suit the room (time of day,
 weather, how busy it is) and plays it on Sonos speakers. You drive it from a
 small controller styled after the teenage engineering OP-1.
 
+![O3 DJ controller: tape-deck screen, colour encoders, genre/weather/mood/transport keys and a row of room keys](docs/screenshot.png)
+
+<sub>Mock mode, early evening with rain: the DJ is mixing chill with jazzy cafe (69% jazz) at low energy, two rooms synced.</sub>
+
 This is the **test bench** version: atmosphere inputs are manual knobs and keys,
 not yet wired to live data (clock aside). It runs on a laptop on the same Wi-Fi as the speakers.
 
