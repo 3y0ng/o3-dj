@@ -749,7 +749,7 @@ class DJ:
                 "inputs": self.effective_inputs().to_dict(),
                 "mode": self.mode,
                 # feed details + where each effective value came from (the values themselves are in "inputs")
-                "live": {**self.live.status(),
+                "feeds": {**self.live.status(),
                          **{k: v for k, v in self.live.effective().items() if k.endswith("_src")},
                          "override_minutes": self.cfg.get("live", {}).get("override_minutes", 60)},
                 "targets": self.targets,

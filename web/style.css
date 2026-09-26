@@ -242,6 +242,34 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .key .swatch { width: 18px; height: 18px; border-radius: 50%; background: var(--sw); box-shadow: inset 0 -2px 2px rgba(0,0,0,.2), inset 0 1px 1px rgba(255,255,255,.5); }
 .key .count { font-family: var(--mono); font-size: 9px; color: #999; }
 
+/* ── demo / live slide switch ───────────────────────────── */
+.slide-wrap { display: flex; align-items: center; gap: 10px; height: 68px; }
+.slide-lab { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .06em; color: #8b9094; transition: color .2s; cursor: pointer; }
+.slide-lab.active { color: var(--ink); }
+.slide {
+  position: relative; width: 74px; height: 34px; border: 0; padding: 0; border-radius: 17px; cursor: pointer; flex: none;
+  background: linear-gradient(180deg, #232427, #3a3c40);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.75);
+  transition: background .3s, box-shadow .3s;
+}
+.slide::before { /* slot glow when live */
+  content: ""; position: absolute; inset: 5px 8px; border-radius: 12px; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(60% 120% at 30% 50%, rgba(47,211,127,.55), transparent 70%);
+}
+.slide.on { background: linear-gradient(180deg, #16301f, #24472f); }
+.slide.on::before { opacity: 1; }
+.slide .thumb {
+  position: absolute; top: 3px; left: 3px; width: 36px; height: 28px; border-radius: 14px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.14) 0 1px, transparent 1px 4px) center / 13px 12px no-repeat,
+    linear-gradient(180deg, #fdfdfb 0%, #e2e3e0 55%, #c7c9c6 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.18), inset 0 1px 0 #fff;
+  transition: left .28s cubic-bezier(.3, 1.4, .5, 1);
+}
+.slide.on .thumb { left: 35px; }
+.slide:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.slide:disabled { cursor: not-allowed; opacity: .55; }
+
 /* ── rooms keyboard ───────────────────────────────────────── */
 .rooms { grid-area: rooms; }
 .rooms-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -329,7 +357,9 @@ form .row { display: flex; gap: 7px; }
 
   /* Staff use it for play / skip / votes: put transport first, and let keys fill the row. */
   .kgroup { width: 100%; }
-  .kgroup.transport { order: -1; }
+  .kgroup.transport { order: -2; }
+  .kgroup.mode { order: -1; }
+  .slide-wrap { height: 44px; }
   .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .key { width: auto; }
 

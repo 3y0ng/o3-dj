@@ -79,7 +79,7 @@ const ENC = {
       const v = clamp(S.inputs.occupancy + d * 2, 0, 100);
       setInputs({ occupancy: v, occupancy_enabled: true });
       const how = "space is " + (v > 85 ? "packed" : v > 55 ? "busy" : v > 25 ? "steady" : "quiet");
-      popup("occupancy", v + "%", S.mode === "live" ? `override for ${(S.live && S.live.override_minutes) || 60} min · ${how}` : how, "var(--white)");
+      popup("occupancy", v + "%", S.mode === "live" ? `override for ${(S.feeds && S.feeds.override_minutes) || 60} min · ${how}` : how, "var(--white)");
     },
   },
   time: {
@@ -159,24 +159,28 @@ function popup(label, val, sub, color) {
 function initKeys() {
   $$("[data-weather]").forEach((k) => k.addEventListener("click", () => {
     const w = k.dataset.weather;
-    if (S.mode === "live" && S.live.weather_src === "override" && S.inputs.weather === w) {
+    if (S.mode === "live" && (S.feeds || {}).weather_src === "override" && S.inputs.weather === w) {
       return act("/api/override/clear", { key: "weather" });  // press the lit key again: back to live weather
     }
     setInputs({ weather: w }, 0);
-    if (S.mode === "live") popup("weather", w, `override for ${(S.live && S.live.override_minutes) || 60} min · press again for live`, "var(--blue)");
+    if (S.mode === "live") popup("weather", w, `override for ${(S.feeds && S.feeds.override_minutes) || 60} min · press again for live`, "var(--blue)");
   }));
   $("#k-occ").addEventListener("click", () => {
     if (S.mode === "live") {
-      if (S.live.occupancy_src === "override") return act("/api/override/clear", { key: "occupancy" });
+      if ((S.feeds || {}).occupancy_src === "override") return act("/api/override/clear", { key: "occupancy" });
       return popup("occupancy", S.inputs.occupancy_enabled ? S.inputs.occupancy + "%" : "—", "comes from live data · turn the knob to override", "var(--white)");
     }
     setInputs({ occupancy_enabled: !S.inputs.occupancy_enabled }, 0);
   });
-  $("#k-live").addEventListener("click", () => {
-    const next = S.mode === "live" ? "demo" : "live";
+  const setMode = (next) => {
+    if (!S || S.mode === undefined || S.mode === next) return;
+    S.mode = next;
+    renderMode(S);
     act("/api/mode", { mode: next });
     popup("mode", next, next === "live" ? "weather + occupancy from live data" : "set the atmosphere by hand", next === "live" ? "var(--green)" : "var(--dim)");
-  });
+  };
+  $("#k-mode").addEventListener("click", () => setMode(S.mode === "live" ? "demo" : "live"));
+  $$(".slide-lab").forEach((l) => l.addEventListener("click", () => setMode(l.dataset.for)));
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
     // switching to manual keeps the current loudness as the starting point
@@ -241,7 +245,7 @@ function render(s, local = false) {
   // status bar
   $("#s-clock").textContent = fmtHour(t.hour) + (t.clock ? "" : "*");
   $("#s-daypart").textContent = t.daypart;
-  const live = s.mode === "live", L = s.live || {};
+  const live = s.mode === "live", L = s.feeds || {};
   const modeEl = $("#s-mode");
   modeEl.textContent = live ? "live" : "demo";
   modeEl.className = "pill " + (live ? "c-green" : "c-dim");
@@ -312,8 +316,8 @@ function render(s, local = false) {
   $(".led", $("#k-occ")).classList.toggle("on", i.occupancy_enabled);
   $(".led", $("#k-auto")).classList.toggle("on", i.auto);
   $(".led", $("#k-clock")).classList.toggle("on", i.hour_override == null);
-  $(".led", $("#k-live")).className = "led" + (s.mode === "live" ? " on green" : "");
-  $("em", $("#k-occ")).textContent = s.mode === "live" && (s.live || {}).occupancy_src === "override" ? "occ · live" : "occ";
+  renderMode(s);
+  $("em", $("#k-occ")).textContent = s.mode === "live" && (s.feeds || {}).occupancy_src === "override" ? "occ · live" : "occ";
   $(".led", $("#k-play")).className = "led" + (playing ? " on green" : "");
   $("#play-icon").innerHTML = playing
     ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" class="solid"/>'
@@ -327,6 +331,16 @@ function render(s, local = false) {
   if (!foot.classList.contains("bad")) {
     foot.textContent = `${s.live ? "live sonos" : "mock speakers (silent)"} · speakers stream cache from ${s.health.base_url} · ${s.cache.mb} MB cached · ${s.health.prefetch}`;
   }
+}
+
+function renderMode(s) {
+  const sw = $("#k-mode"), live = s.mode === "live", supported = s.mode !== undefined;
+  sw.classList.toggle("on", live);
+  sw.setAttribute("aria-checked", String(live));
+  sw.disabled = !supported;
+  if (!supported) sw.title = "restart the DJ to enable live data";
+  $$(".slide-lab").forEach((l) => l.classList.toggle("active", (l.dataset.for === "live") === live));
+  $(".slide-lab .led").className = "led" + (live ? " on green" : "");
 }
 
 function renderGenreKeys(s) {
