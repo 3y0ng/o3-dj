@@ -42,6 +42,28 @@ Knob trims (volume/energy) reset automatically when the real clock moves into th
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
 
+## Demo and live mode
+
+The **live data** key switches modes (details and setup: [docs/live-mode-plan.md](docs/live-mode-plan.md)).
+
+- **Demo** (default): you set weather, occupancy and time of day with the keys and knobs.
+- **Live**: time follows the venue clock, weather comes from Open-Meteo, and occupancy is read from O3's Supabase (read-only,
+  no database changes). Pressing a weather key or turning the occupancy knob overrides live data for an hour; press the lit
+  weather key again, or the occ key, to hand back early. If a feed goes quiet for 15 minutes the DJ ignores it (`stale`)
+  rather than acting on old data.
+
+Configure live mode in `config.local.json` (gitignored), e.g.:
+
+```json
+{ "live": {
+    "timezone": "Australia/Sydney", "capacity": 80,
+    "weather":   { "lat": -33.898, "lon": 151.179 },
+    "occupancy": { "supabase_url": "https://<project>.supabase.co", "mode": "count", "table": "<visits table>",
+                   "site_column": "<site column>", "site_value": "<this venue>",
+                   "start_column": "<check-in time>", "end_column": "<check-out time>" } } }
+```
+and put a read-only key in the environment: `export O3_SUPABASE_KEY=...` (never the service-role key).
+
 ## How it decides
 
 `o3dj/brain.py` is pure logic. Tune it in `config.json`:

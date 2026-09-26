@@ -46,6 +46,7 @@ def main():
 
     threading.Thread(target=dj.run, daemon=True, name="dj").start()
     threading.Thread(target=dj.health_loop, daemon=True, name="health").start()
+    threading.Thread(target=dj.live_loop, daemon=True, name="live").start()
     if not args.no_prefetch:
         dj.prefetcher = Prefetcher(dj)
         threading.Thread(target=dj.prefetcher.run, daemon=True, name="prefetch").start()

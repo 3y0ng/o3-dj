@@ -78,11 +78,13 @@ const ENC = {
     step(d) {
       const v = clamp(S.inputs.occupancy + d * 2, 0, 100);
       setInputs({ occupancy: v, occupancy_enabled: true });
-      popup("occupancy", v + "%", "space is " + (v > 85 ? "packed" : v > 55 ? "busy" : v > 25 ? "steady" : "quiet"), "var(--white)");
+      const how = "space is " + (v > 85 ? "packed" : v > 55 ? "busy" : v > 25 ? "steady" : "quiet");
+      popup("occupancy", v + "%", S.mode === "live" ? `override for ${(S.live && S.live.override_minutes) || 60} min · ${how}` : how, "var(--white)");
     },
   },
   time: {
     step(d) {
+      if (S.mode === "live") { popup("time", fmtHour(S.targets.hour), "live mode follows the venue clock", "var(--orange)"); return; }
       const base = S.inputs.hour_override ?? S.targets.hour;
       const v = ((Math.round(base * 4) + d) / 4 + 24) % 24;
       setInputs({ hour_override: v });
@@ -155,14 +157,35 @@ function popup(label, val, sub, color) {
 
 // ── keys ───────────────────────────────────────────────────────────
 function initKeys() {
-  $$("[data-weather]").forEach((k) => k.addEventListener("click", () => setInputs({ weather: k.dataset.weather }, 0)));
-  $("#k-occ").addEventListener("click", () => setInputs({ occupancy_enabled: !S.inputs.occupancy_enabled }, 0));
+  $$("[data-weather]").forEach((k) => k.addEventListener("click", () => {
+    const w = k.dataset.weather;
+    if (S.mode === "live" && S.live.weather_src === "override" && S.inputs.weather === w) {
+      return act("/api/override/clear", { key: "weather" });  // press the lit key again: back to live weather
+    }
+    setInputs({ weather: w }, 0);
+    if (S.mode === "live") popup("weather", w, `override for ${(S.live && S.live.override_minutes) || 60} min · press again for live`, "var(--blue)");
+  }));
+  $("#k-occ").addEventListener("click", () => {
+    if (S.mode === "live") {
+      if (S.live.occupancy_src === "override") return act("/api/override/clear", { key: "occupancy" });
+      return popup("occupancy", S.inputs.occupancy_enabled ? S.inputs.occupancy + "%" : "—", "comes from live data · turn the knob to override", "var(--white)");
+    }
+    setInputs({ occupancy_enabled: !S.inputs.occupancy_enabled }, 0);
+  });
+  $("#k-live").addEventListener("click", () => {
+    const next = S.mode === "live" ? "demo" : "live";
+    act("/api/mode", { mode: next });
+    popup("mode", next, next === "live" ? "weather + occupancy from live data" : "set the atmosphere by hand", next === "live" ? "var(--green)" : "var(--dim)");
+  });
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
     // switching to manual keeps the current loudness as the starting point
     setInputs(auto ? { auto } : { auto, manual_volume: S.targets.volume }, 0);
   });
-  $("#k-clock").addEventListener("click", () => setInputs({ hour_override: S.inputs.hour_override == null ? S.targets.hour : null }, 0));
+  $("#k-clock").addEventListener("click", () => {
+    if (S.mode === "live") return popup("time", fmtHour(S.targets.hour), "live mode follows the venue clock", "var(--orange)");
+    setInputs({ hour_override: S.inputs.hour_override == null ? S.targets.hour : null }, 0);
+  });
   $("#k-play").addEventListener("click", () => {
     const playing = S.running && !S.paused && S.status.state !== "STOPPED";
     if (!playing && !S.running && S.status.other_source) {
@@ -218,8 +241,27 @@ function render(s, local = false) {
   // status bar
   $("#s-clock").textContent = fmtHour(t.hour) + (t.clock ? "" : "*");
   $("#s-daypart").textContent = t.daypart;
-  $("#s-weather").textContent = WEATHER_GLYPH[i.weather] || i.weather;
-  $("#s-occ").textContent = i.occupancy_enabled ? `occ ${i.occupancy}%` : "";
+  const live = s.mode === "live", L = s.live || {};
+  const modeEl = $("#s-mode");
+  modeEl.textContent = live ? "live" : "demo";
+  modeEl.className = "pill " + (live ? "c-green" : "c-dim");
+  const ovr = (k) => (L.overrides && L.overrides[k] != null ? ` · ovr ${L.overrides[k]}m` : "");
+  const wEl = $("#s-weather"), oEl = $("#s-occ");
+  if (!live) {
+    wEl.textContent = WEATHER_GLYPH[i.weather] || i.weather;
+    wEl.className = "c-blue";
+    oEl.textContent = i.occupancy_enabled ? `occ ${i.occupancy}%` : "";
+    oEl.className = "c-dim";
+  } else {
+    const temp = L.weather && L.weather.detail && L.weather.detail.temp_c != null ? ` ${Math.round(L.weather.detail.temp_c)}°` : "";
+    wEl.textContent = L.weather_src === "off" ? "no weather feed" : L.weather_src === "stale" ? "weather stale" :
+      (WEATHER_GLYPH[i.weather] || i.weather) + (L.weather_src === "live" ? temp : "") + ovr("weather");
+    wEl.className = L.weather_src === "live" || L.weather_src === "override" ? "c-blue" : "c-red";
+    const d = (L.occupancy && L.occupancy.detail) || {};
+    oEl.textContent = L.occupancy_src === "off" ? "no occupancy feed" : L.occupancy_src === "stale" ? "occ stale" :
+      `occ ${i.occupancy}%` + (L.occupancy_src === "live" && d.count != null ? ` (${d.count}/${d.capacity})` : "") + ovr("occupancy");
+    oEl.className = L.occupancy_src === "live" || L.occupancy_src === "override" ? "c-white" : "c-red";
+  }
   const src = $("#s-src");
   src.textContent = s.health.source_online ? "src ok" : "offline·cache";
   src.className = "pill " + (s.health.source_online ? "c-green" : "c-red");
@@ -262,7 +304,7 @@ function render(s, local = false) {
 
   // encoders dimmed when they have no effect
   $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
-  $('[data-enc="time"]').classList.toggle("dimmed", i.hour_override == null);
+  $('[data-enc="time"]').classList.toggle("dimmed", i.hour_override == null || s.mode === "live");
 
   // keys
   renderGenreKeys(s);
@@ -270,6 +312,8 @@ function render(s, local = false) {
   $(".led", $("#k-occ")).classList.toggle("on", i.occupancy_enabled);
   $(".led", $("#k-auto")).classList.toggle("on", i.auto);
   $(".led", $("#k-clock")).classList.toggle("on", i.hour_override == null);
+  $(".led", $("#k-live")).className = "led" + (s.mode === "live" ? " on green" : "");
+  $("em", $("#k-occ")).textContent = s.mode === "live" && (s.live || {}).occupancy_src === "override" ? "occ · live" : "occ";
   $(".led", $("#k-play")).className = "led" + (playing ? " on green" : "");
   $("#play-icon").innerHTML = playing
     ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" class="solid"/>'

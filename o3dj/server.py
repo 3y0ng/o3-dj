@@ -67,6 +67,19 @@ def create_app(dj):
         dj.set_inputs(request.get_json(force=True))
         return ok()
 
+    @app.post("/api/mode")
+    def mode():
+        body = request.get_json(force=True)
+        if body.get("mode") not in ("demo", "live"):
+            return jsonify({"error": "mode must be demo or live"}), 400
+        dj.set_mode(body["mode"])
+        return ok()
+
+    @app.post("/api/override/clear")
+    def clear_override():
+        dj.clear_override(request.get_json(force=True).get("key"))
+        return ok()
+
     @app.post("/api/speakers")
     def speakers():
         body = request.get_json(force=True)

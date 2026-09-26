@@ -35,6 +35,9 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - `o3dj/library.py`: sources (Chillify catalogue, `library/<genre>/` files, `library/custom_tracks.json`).
 - `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, and analyses tempo.
 - `o3dj/analysis.py`: ffmpeg + numpy tempo/energy; energy is a percentile across analysed tracks. `track_meta.json` also stores durations.
+- `o3dj/live.py`: LIVE mode feeds (Open-Meteo weather, read-only Supabase occupancy) and staff overrides with expiry.
+  `DJ.effective_inputs()` layers override → live → neutral; `brain.py` never knows which mode it's in.
+  **O3's database must not be changed**: Supabase access is read-only (HEAD count or an existing RPC), key from `O3_SUPABASE_KEY`.
 - `o3dj/server.py`: JSON API, `/ui/*` static files, `/media/*` (speakers stream cached files from this laptop over the LAN).
 - `data/` (gitignored): `state.json` (inputs, votes, history, running), `track_meta.json`, `cache/`, catalogue snapshot.
 

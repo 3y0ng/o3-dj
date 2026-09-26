@@ -85,6 +85,11 @@ Still open:
 
 ## 4. Roadmap: live data instead of manual toggles
 
+- [x] DEMO / LIVE switch, override → live → neutral layering, 15 min staleness, venue timezone, Open-Meteo weather,
+  configurable read-only Supabase occupancy (`count` or `rpc`), screen badges. See `docs/live-mode-plan.md`.
+- [ ] **Configure occupancy**: find the check-ins table (or an existing live-count function) and a read-only key; set venue
+  `timezone`, `lat`/`lon`, `capacity`. Needs the O3 app repo or whoever knows the schema.
+
 All of these only need to POST to `/api/inputs`.
 - [ ] **Weather feed.** Open-Meteo (free, no key) or BOM per venue; map rain/cloud → the weather keys. Keep the manual override.
 - [ ] **Occupancy feed.** Check-ins/bookings from the O3 app, a door counter, or Wi-Fi client count as a cheap proxy.

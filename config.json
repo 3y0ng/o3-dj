@@ -49,5 +49,29 @@
     "track_base": "https://chillify.me/tracks/"
   },
 
-  "mock_track_seconds": 45
+  "mock_track_seconds": 45,
+
+  "live": {
+    "timezone": null,
+    "capacity": null,
+    "stale_after_minutes": 15,
+    "override_minutes": 60,
+    "weather": { "lat": null, "lon": null, "poll_seconds": 600 },
+    "occupancy": {
+      "supabase_url": "",
+      "key_env": "O3_SUPABASE_KEY",
+      "mode": "count",
+      "table": "",
+      "site_column": "",
+      "site_value": null,
+      "start_column": "",
+      "end_column": "",
+      "max_visit_hours": 8,
+      "extra_filters": {},
+      "rpc": "",
+      "rpc_args": {},
+      "result_key": "count",
+      "poll_seconds": 60
+    }
+  }
 }

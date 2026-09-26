@@ -20,9 +20,11 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlparse
+from zoneinfo import ZoneInfo
 
 from . import brain
 from .config import DATA
+from .live import Live
 from .store import JsonFile
 
 log = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ log = logging.getLogger(__name__)
 MIME = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
         ".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "application/ogg"}
 DISCRETE_INPUTS = {"genres", "weather", "occupancy_enabled", "hour_override"}
+LIVE_INPUTS = {"weather", "occupancy", "occupancy_enabled", "hour_override"}  # come from feeds in live mode
 CONTINUOUS_INPUTS = {"energy_trim", "occupancy"}
 VOLUME_INPUTS = {"auto", "manual_volume", "volume_trim"}
 
@@ -56,6 +59,9 @@ class DJ:
         self.votes = self.store.data.setdefault("votes", {})
         self.history = deque(self.store.data.get("history", []), maxlen=200)
         self.was_running = bool(self.store.data.get("running"))
+        self.mode = self.store.data.get("mode", "demo")  # demo: manual atmosphere; live: feeds
+        self.live = Live(cfg)
+        self._last_effective = None
 
         self.lock = threading.RLock()
         self.running = False     # DJ is in charge of the speakers
@@ -118,11 +124,30 @@ class DJ:
         self.store.data["inputs"] = self.inputs.to_dict()
         self.store.data["history"] = list(self.history)
         self.store.data["running"] = self.running
+        self.store.data["mode"] = self.mode
         self.store.save()
 
+    def hour_now(self):
+        tz = self.cfg.get("live", {}).get("timezone")
+        now = datetime.now(ZoneInfo(tz)) if tz else datetime.now()
+        return now.hour + now.minute / 60
+
+    def effective_inputs(self):
+        """What the brain sees: manual inputs in demo mode; in live mode the atmosphere comes
+        from feeds (or a staff override) and time follows the venue clock."""
+        if self.mode != "live":
+            return self.inputs
+        e = self.live.effective()
+        i = brain.Inputs.from_dict(self.inputs.to_dict())
+        i.hour_override = None
+        i.weather = e["weather"]
+        i.occupancy_enabled = e["occupancy"] is not None
+        if e["occupancy"] is not None:
+            i.occupancy = e["occupancy"]
+        return i
+
     def compute(self):
-        now = datetime.now()
-        return brain.targets(self.inputs, self.cfg, now.hour + now.minute / 60, self.library.genres())
+        return brain.targets(self.effective_inputs(), self.cfg, self.hour_now(), self.library.genres())
 
     def available(self, t):
         if self.failed(t.id):
@@ -155,10 +180,10 @@ class DJ:
             self._cache_names = {self.cache.name_for(t): t for t in self.library.all() if t.url}
         return self._cache_names.get(name)
 
-    def pick(self, n=1):
+    def pick(self, n=1, exclude=()):
         tgt = self.targets
         by_genre = {g: self.library.in_genre(g) for g in tgt["weights"]}
-        recent = {h["id"] for h in list(self.history)[-60:]} | set(self.queued_ids())
+        recent = {h["id"] for h in list(self.history)[-60:]} | set(self.queued_ids()) | set(exclude)
         out = []
         for _ in range(n):
             t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available)
@@ -284,7 +309,7 @@ class DJ:
             return
         if self.player.remove_index(idx):
             self.upcoming.remove(tid)
-            self._top_up(1)
+            self._top_up(1, exclude={tid})  # don't hand the downvoted track straight back
         else:
             self.skip_on_start.add(tid)
 
@@ -307,8 +332,8 @@ class DJ:
             self.cache.touch(t)
         self.save()
 
-    def _top_up(self, n):
-        picks = self.pick(n) if n > 0 else []
+    def _top_up(self, n, exclude=()):
+        picks = self.pick(n, exclude) if n > 0 else []
         if picks:
             self.player.append([self.item_for(t) for t in picks])
             self.upcoming += [t.id for t in picks]
@@ -386,6 +411,18 @@ class DJ:
     def set_inputs(self, patch):
         with self.lock:
             changed = set()
+            if self.mode == "live":
+                patch = dict(patch)
+                routed = {k: patch.pop(k) for k in list(patch) if k in LIVE_INPUTS}
+                if routed.get("weather") in self.cfg["weather"]:
+                    self.live.override("weather", routed["weather"])
+                    changed.add("weather")
+                if "occupancy" in routed:
+                    self.live.override("occupancy", int(max(0, min(100, routed["occupancy"]))))
+                    changed.add("occupancy")
+                if routed.get("occupancy_enabled") is False:  # occ key off: hand occupancy back to the feed
+                    self.live.clear_override("occupancy")
+                    changed.add("occupancy")
             for k, v in patch.items():
                 if k not in brain.Inputs.__dataclass_fields__:
                     continue
@@ -406,6 +443,7 @@ class DJ:
                     changed.add(k)
             if not changed:
                 return
+            self._last_effective = self._effective_key()
             self.save()
             self.targets = self.compute()
             if changed & DISCRETE_INPUTS:
@@ -414,6 +452,56 @@ class DJ:
                 self.dirty_at = time.time()
             if changed & VOLUME_INPUTS and self.running:
                 self._apply_volume(max_step=100)
+
+    def set_mode(self, mode):
+        if mode not in ("demo", "live") or mode == self.mode:
+            return
+        if mode == "live":
+            self.live.poll(force=True)  # network: outside the DJ lock
+        with self.lock:
+            self.mode = mode
+            self.save()
+            self.targets = self.compute()
+            self._last_effective = self._effective_key()
+            self.dirty_at = 0
+            e = self.live.effective()
+            self.event("LIVE mode: " + f"weather {e['weather_src']}, occupancy {e['occupancy_src']}" if mode == "live"
+                       else "DEMO mode: manual atmosphere")
+
+    def clear_override(self, key):
+        with self.lock:
+            self.live.clear_override(key)
+            self.targets = self.compute()
+            self.dirty_at = 0
+
+    def _effective_key(self):
+        i = self.effective_inputs()
+        return (i.weather, i.occupancy_enabled, i.occupancy // 10 if i.occupancy_enabled else None)
+
+    def _follow_live(self):
+        """In live mode, re-pick upcoming tracks when the live atmosphere changes."""
+        if self.mode != "live":
+            return
+        key = self._effective_key()
+        if self._last_effective is not None and key != self._last_effective:
+            before = self._last_effective
+            if key[0] != before[0]:
+                self.event(f"live: weather now {key[0]}")
+            elif key[1] != before[1]:
+                self.event("live: occupancy " + ("available" if key[1] else "unavailable - ignoring it"))
+            else:
+                self.event(f"live: occupancy now {self.effective_inputs().occupancy}%")
+            self.dirty_at = 0 if key[:2] != before[:2] else time.time()
+        self._last_effective = key
+
+    def live_loop(self):
+        while True:
+            try:
+                if self.mode == "live":
+                    self.live.poll()
+            except Exception:
+                log.exception("live feeds failed")
+            time.sleep(5)
 
     # -- speakers ---------------------------------------------------------------
     def speaker_action(self, action, ip=None):
@@ -516,6 +604,7 @@ class DJ:
             self.status = st
             self.targets = self.compute()
             self._check_daypart()
+            self._follow_live()
             if not self.running:
                 if n % 5 == 0:
                     self.volumes = self.player.volumes()
@@ -565,7 +654,7 @@ class DJ:
 
     def _check_daypart(self):
         """When the real clock moves into a new part of the day: re-pick, and let knob trims expire."""
-        if self.inputs.hour_override is not None:
+        if self.mode != "live" and self.inputs.hour_override is not None:
             return
         dp = self.targets["daypart"]
         if self.last_daypart and dp != self.last_daypart:
@@ -657,7 +746,12 @@ class DJ:
                 "status": status,
                 "now": self.track_info(self.now_id),
                 "upcoming": [self.track_info(i) for i in self.upcoming],
-                "inputs": self.inputs.to_dict(),
+                "inputs": self.effective_inputs().to_dict(),
+                "mode": self.mode,
+                # feed details + where each effective value came from (the values themselves are in "inputs")
+                "live": {**self.live.status(),
+                         **{k: v for k, v in self.live.effective().items() if k.endswith("_src")},
+                         "override_minutes": self.cfg.get("live", {}).get("override_minutes", 60)},
                 "targets": self.targets,
                 "genres": per_genre,
                 "speakers": self.speakers,
