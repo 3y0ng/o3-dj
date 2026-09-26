@@ -44,19 +44,19 @@ Energy marker ▼ = target, green bar = current track.
 
 ## Calibrating a venue (once, about 5 minutes)
 
-Press **calibrate** under the knobs. The speakers play a short song (starting 45 s in) for each of six scenarios:
-quiet morning, lunchtime rush, rainy afternoon, busy after work, winding down, and a rainy near-empty night.
-The screen shows the scenario. For each one:
+It's one key, **calibrate** (next to the demo/live switch), and the screen shows everything else.
 
-- **blue knob**: louder / softer (applied straight away)
-- **green knob**: faster / slower (a new, faster or calmer song starts once you stop turning)
-- **another song**: hear a different track at the same settings
-- **sounds right →**: next scenario (**back** to redo one, **stop** to abandon)
+1. **Press calibrate.** The speakers play a short song (starting 45 s in) for the first of six scenarios: quiet morning,
+   lunchtime rush, rainy afternoon, busy after work, winding down, and a rainy near-empty night. The screen shows the
+   scenario (time, weather, how full), the song, the current volume and energy, and a key legend.
+2. **Adjust by ear:** **blue knob** louder/softer, **green knob** faster/slower (a new song starts once you stop turning),
+   **skip** for another song.
+3. **Press calibrate** (now labelled *sounds right*) for the next scenario.
+4. After the sixth, the screen shows what it learned in plain words: overall level, packed room, empty room, rain, cloud.
+   **Press calibrate** (*apply*) to keep it, or **hold** it to discard.
 
-At the end it works out, from your six answers, how loud and upbeat this venue should be overall, how much louder
-when it's packed, how much quieter when it's empty, and what rain and cloud should do. It shows that in plain words;
-**apply** saves it for this venue (`data/calibration.json` on the DJ laptop), **discard** keeps the old levels.
-Afterwards the DJ goes back to normal. You can re-run it any time, and **reset** returns to the built-in defaults.
+Hold the key at any point to cancel (nothing changes). When not calibrating, holding it resets the venue to the defaults.
+The result is saved for this venue in `data/calibration.json` on the DJ laptop, and the DJ goes back to normal.
 
 The knobs still work day to day as temporary tweaks (they reset when the time of day moves on). Each venue also has a
 `max_volume` safety cap in `config.json` (Newtown 75, others 60).

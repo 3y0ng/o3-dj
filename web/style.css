@@ -251,14 +251,33 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
   box-shadow: inset 0 2px 3px rgba(0,0,0,.16), 0 1px 0 rgba(255,255,255,.7);
 }
 .slide-wrap { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.cal-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
-  border-top: 1px solid rgba(0,0,0,.08); padding-top: 9px; }
-.cal-step { font-family: var(--mono); font-size: 11px; color: var(--ink); }
-.cal-result ul { margin: 0; padding: 0 0 0 16px; font-family: var(--mono); font-size: 11px; color: var(--ink); line-height: 1.6; }
-.cal-result .cal-row { border-top: 0; padding-top: 6px; }
-.knob-panel.calibrating { box-shadow: inset 0 2px 3px rgba(0,0,0,.16), 0 0 0 2px var(--orange); }
-.cal-info { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
-.mini.ghost { background: transparent; box-shadow: none; color: var(--ink-soft); text-decoration: underline; padding: 6px 4px; }
+.panel-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cal-key { width: 64px; height: 56px; flex: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.cal-key.busy .led { animation: blink 1s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+
+/* calibration view: takes over the screen while calibrating */
+.cal-view {
+  position: absolute; inset: 0; z-index: 2; display: grid; grid-template-rows: auto 1fr auto; gap: 1.6cqw;
+  padding: 3.2cqw 3.6cqw 2.6cqw; background: radial-gradient(120% 90% at 50% 40%, #0e0f12 0%, var(--scr) 70%);
+  font-family: var(--mono); color: var(--white);
+}
+.cv-head { display: flex; gap: 2.2cqw; align-items: center; font-size: 2.5cqw; letter-spacing: .14em; text-transform: uppercase; }
+.cv-dots { margin-left: auto; display: flex; gap: 1cqw; }
+.cv-dots i { width: 1.6cqw; height: 1.6cqw; border-radius: 50%; border: 1px solid #555a62; }
+.cv-dots i.done { background: var(--orange); border-color: var(--orange); }
+.cv-dots i.now { border-color: var(--orange); box-shadow: 0 0 0 1px var(--orange); }
+.cv-body { display: flex; flex-direction: column; justify-content: center; gap: 1.4cqw; min-width: 0; }
+.cv-name { font-size: 5.2cqw; line-height: 1.05; }
+.cv-cond { display: flex; align-items: center; gap: 2cqw; font-size: 2.7cqw; }
+.cv-occ { width: 14cqw; height: 1.6cqw; background: #16181c; border-radius: .4cqw; overflow: hidden; }
+.cv-occ i { display: block; height: 100%; width: 0; background: var(--white); transition: width .4s; }
+.cv-song { font-size: 2.4cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-levels { display: flex; gap: 4cqw; font-size: 2.7cqw; color: var(--dim); }
+.cv-levels b { font-weight: 500; font-size: 3.4cqw; }
+#cv-summary { margin: 0; padding-left: 3cqw; font-size: 2.4cqw; line-height: 1.55; color: #cfd3d8; }
+.cv-legend { display: flex; flex-wrap: wrap; gap: .6cqw 2.6cqw; font-size: 2.2cqw; color: var(--dim); border-top: 1px dashed #24272c; padding-top: 1.3cqw; }
+.cv-legend .chip { color: var(--white); border: 1px solid #555a62; border-radius: .6cqw; padding: 0 .9cqw; margin-right: .6cqw; }
 .slide-lab { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .06em; color: #8b9094; transition: color .2s; cursor: pointer; }
 .slide-lab.active { color: var(--ink); }
 .slide {
@@ -374,6 +393,12 @@ form .row { display: flex; gap: 7px; }
   .kgroup { width: 100%; }
   .kgroup.transport { order: -1; }
   .knob-panel { margin-top: 12px; }
+  .cal-view { padding: 13px 14px 10px; gap: 8px; }
+  .cv-head { font-size: 11px; } .cv-dots { gap: 4px; } .cv-dots i { width: 7px; height: 7px; }
+  .cv-name { font-size: 19px; } .cv-cond, .cv-levels { font-size: 11.5px; gap: 8px; } .cv-levels b { font-size: 14px; }
+  .cv-occ { width: 50px; height: 6px; } .cv-song { font-size: 11px; }
+  #cv-summary { font-size: 11px; padding-left: 14px; } .cv-legend { font-size: 10.5px; gap: 4px 10px; padding-top: 6px; }
+  .cv-legend .chip { border-radius: 3px; padding: 0 4px; }
   .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .key { width: auto; }
 

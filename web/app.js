@@ -104,6 +104,9 @@ function initEncoders() {
     let rot = 0, acc = 0, lastY = 0, dragging = false;
     const turn = (d) => {
       if (!S || !d) return;
+      if (S.calibration && S.calibration.wizard && (name === "occ" || name === "time")) {
+        return popup(name === "occ" ? "occupancy" : "time", "fixed", "set by the calibration scenario", "var(--dim)");
+      }
       rot += d * 14;
       cap.style.setProperty("--rot", rot + "deg");
       ENC[name].step(d);
@@ -185,15 +188,7 @@ function initKeys() {
   };
   $("#k-mode").addEventListener("click", () => setMode(S.mode === "live" ? "demo" : "live"));
   $$(".slide-lab").forEach((l) => l.addEventListener("click", () => setMode(l.dataset.for)));
-  $("#k-cal-start").addEventListener("click", () => {
-    if (!confirm("Calibrate this venue?\n\nThe speakers will play a short song for each of 6 scenarios (quiet morning, lunch rush, rain…). " +
-                 "For each: blue knob = louder/softer, green knob = faster/slower, then 'sounds right'. Takes about 5 minutes.")) return;
-    act("/api/calibration", { action: "start" });
-  });
-  $("#k-cal-reset").addEventListener("click", () => {
-    if (confirm("Forget this venue's calibration and go back to the default levels?")) act("/api/calibration", { action: "reset" });
-  });
-  $$("[data-cal]").forEach((b) => b.addEventListener("click", () => act("/api/calibration", { action: b.dataset.cal })));
+  initCalibrateKey();
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
     // switching to manual keeps the current loudness as the starting point
@@ -212,7 +207,11 @@ function initKeys() {
     }
     act("/api/control", { action: playing ? "pause" : "play" });
   });
-  $("#k-skip").addEventListener("click", () => act("/api/control", { action: "skip" }));
+  $("#k-skip").addEventListener("click", () => {
+    const wiz = S.calibration && S.calibration.wizard;
+    if (wiz && !wiz.proposal) return act("/api/calibration", { action: "another" });
+    act("/api/control", { action: "skip" });
+  });
   $("#k-up").addEventListener("click", () => act("/api/control", { action: "up" }));
   $("#k-down").addEventListener("click", () => act("/api/control", { action: "down" }));
   $("#k-party").addEventListener("click", () => {
@@ -317,7 +316,7 @@ function render(s, local = false) {
   const top = Object.entries(t.weights).sort((a, b) => b[1] - a[1])[0];
   $("#m-mix-val").textContent = top ? Math.round(top[1] * 100) + "%" : "";
 
-  if (!renderCalibrationScreen(s)) setTicker(t.reasons.join("   ·   "));
+  setTicker(t.reasons.join("   ·   "));
 
   // encoders dimmed when they have no effect
   $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
@@ -357,47 +356,80 @@ function renderMode(s) {
   $(".slide-lab .led").className = "led" + (live ? " on green" : "");
 }
 
+// One key does the whole calibration: press = start / sounds right / apply; hold = cancel / discard / reset.
+function initCalibrateKey() {
+  const key = $("#k-cal");
+  let timer = null, held = false;
+  const press = () => {
+    const c = S && S.calibration;
+    if (!c) return;
+    const wiz = c.wizard;
+    if (!wiz) {
+      const again = c.saved_at ? `\n\nThis replaces the calibration from ${c.saved_at.slice(0, 10)}.` : "";
+      if (confirm("Calibrate this venue? The speakers will play a short song for each of 6 scenarios " +
+                  "(quiet morning, lunch rush, rain…). About 5 minutes." + again)) act("/api/calibration", { action: "start" });
+    } else {
+      act("/api/calibration", { action: wiz.proposal ? "apply" : "next" });
+    }
+  };
+  const hold = () => {
+    const c = S && S.calibration;
+    if (!c) return;
+    const wiz = c.wizard;
+    if (wiz) {
+      if (confirm(wiz.proposal ? "Discard this calibration and keep the old levels?" : "Stop calibrating? Nothing will change."))
+        act("/api/calibration", { action: wiz.proposal ? "discard" : "stop" });
+    } else if (c.saved_at && confirm("Reset this venue to the default levels (forget the calibration)?")) {
+      act("/api/calibration", { action: "reset" });
+    }
+  };
+  key.addEventListener("pointerdown", () => { held = false; timer = setTimeout(() => { held = true; hold(); }, 800); });
+  const up = () => clearTimeout(timer);
+  key.addEventListener("pointerup", up);
+  key.addEventListener("pointerleave", up);
+  key.addEventListener("click", (e) => { if (!held) press(); held = false; });
+  key.addEventListener("keydown", (e) => { if (e.key === "Escape") hold(); });
+}
+
 function renderCalibration(s) {
-  const c = s.calibration, wiz = c && c.wizard;
-  const panel = $(".knob-panel");
-  panel.classList.toggle("calibrating", !!wiz);
-  $("#cal-idle").hidden = !c || !!wiz;
-  $("#cal-wiz").hidden = !wiz || wiz.proposal;
-  $("#cal-result").hidden = !wiz || !wiz.proposal;
+  const c = s.calibration, wiz = c && c.wizard, key = $("#k-cal"), view = $("#cal-view");
+  key.hidden = !c;  // older server
+  view.hidden = !wiz;
   if (!c) return;
-  if (!wiz) {
-    $("#cal-info").textContent = c.saved_at ? `calibrated ${c.saved_at.slice(0, 10)}` : "not calibrated yet";
-    $("#k-cal-reset").hidden = !c.saved_at;
-    $("#cal-info").title = (c.summary || []).join("\n");
+  key.classList.toggle("busy", !!wiz);
+  $(".led", key).className = "led" + (wiz ? " on" : c.saved_at ? " on green" : "");
+  $("em", key).textContent = !wiz ? "calibrate" : wiz.proposal ? "apply" : "sounds right";
+  key.title = !wiz ? (c.saved_at ? `calibrated ${c.saved_at.slice(0, 10)}: press to redo, hold to reset\n` + (c.summary || []).join("\n")
+                                 : "calibrate this venue")
+                   : wiz.proposal ? "press to apply · hold to discard" : "press when it sounds right · hold to cancel";
+  if (!wiz) return;
+
+  $("#cv-venue").textContent = c.venue || "this venue";
+  const dots = $("#cv-dots");
+  if (dots.children.length !== wiz.of) dots.innerHTML = "<i></i>".repeat(wiz.of);
+  [...dots.children].forEach((d, k) => (d.className = wiz.proposal || k < wiz.step - 1 ? "done" : k === wiz.step - 1 ? "now" : ""));
+  $("#cv-scenario").hidden = wiz.proposal;
+  $("#cv-result").hidden = !wiz.proposal;
+  const legend = wiz.proposal
+    ? '<span><span class="chip">calibrate</span>apply</span><span><span class="chip">hold</span>discard</span>'
+    : '<span><span class="chip">blue</span>louder / softer</span><span><span class="chip">green</span>faster / slower</span>' +
+      '<span><span class="chip">skip</span>another song</span><span><span class="chip">calibrate</span>sounds right</span>' +
+      '<span><span class="chip">hold</span>cancel</span>';
+  if ($("#cv-legend").innerHTML !== legend) $("#cv-legend").innerHTML = legend;
+  if (wiz.proposal) {
+    const html = wiz.summary.map((l) => `<li>${esc(l)}</li>`).join("");
+    if ($("#cv-summary").innerHTML !== html) $("#cv-summary").innerHTML = html;
     return;
   }
   const sc = wiz.scenario;
-  $("#cal-step").textContent = `${wiz.step}/${wiz.of}`;
-  $$('#cal-wiz [data-cal="back"]').forEach((b) => (b.disabled = wiz.step === 1));
-  if (wiz.proposal) {
-    const ul = $("#cal-summary"), html = wiz.summary.map((l) => `<li>${esc(l)}</li>`).join("");
-    if (ul.innerHTML !== html) ul.innerHTML = html;
-  }
-}
-
-function renderCalibrationScreen(s) {
-  // While calibrating, the screen describes the scenario instead of the DJ's reasons.
-  const wiz = s.calibration && s.calibration.wizard;
-  if (!wiz) return false;
-  const sc = wiz.scenario;
-  if (wiz.proposal) {
-    $("#s-state").textContent = "calibration ready";
-    $("#s-state").className = "np-state c-orange";
-    $("#s-title").textContent = "check the changes below";
-    $("#s-meta").textContent = "apply to keep them · discard to keep the old levels";
-    setTicker("calibration done: apply or discard below the knobs");
-  } else {
-    $("#s-state").textContent = `calibrate ${wiz.step}/${wiz.of} · ${sc.name}`;
-    $("#s-state").className = "np-state c-orange";
-    $("#s-meta").textContent = `${fmtHour(sc.hour)} · ${sc.weather} · ${sc.occupancy}% full · ${s.now ? s.now.title : ""}`;
-    setTicker("blue knob: louder / softer   ·   green knob: faster / slower (new song)   ·   then press 'sounds right'");
-  }
-  return true;
+  $("#cv-name").textContent = `${wiz.step}/${wiz.of}  ${sc.name}`;
+  $("#cv-time").textContent = fmtHour(sc.hour);
+  $("#cv-weather").textContent = WEATHER_GLYPH[sc.weather] || sc.weather;
+  $("#cv-occ-bar").style.width = sc.occupancy + "%";
+  $("#cv-occ").textContent = `${sc.occupancy}% full`;
+  $("#cv-song").textContent = s.now ? `♪ ${s.now.title} · ${s.now.bpm ? Math.round(s.now.bpm) + " bpm" : ""}` : "♪ …";
+  $("#cv-vol").textContent = s.targets.volume;
+  $("#cv-nrg").textContent = s.targets.energy.toFixed(2);
 }
 
 function setTicker(text) {

@@ -80,6 +80,20 @@
 
         <div class="scr-bottom"><div class="ticker" id="s-ticker"><span></span></div></div>
 
+        <div class="cal-view" id="cal-view" hidden aria-live="polite">
+          <div class="cv-head"><span class="c-orange">calibrate</span><span class="c-dim" id="cv-venue"></span><span class="cv-dots" id="cv-dots"></span></div>
+          <div class="cv-body" id="cv-scenario">
+            <div class="cv-name" id="cv-name"></div>
+            <div class="cv-cond"><span id="cv-time"></span><span id="cv-weather" class="c-blue"></span><span class="cv-occ"><i id="cv-occ-bar"></i></span><span id="cv-occ"></span></div>
+            <div class="cv-song c-dim" id="cv-song"></div>
+            <div class="cv-levels"><span>vol <b class="c-blue" id="cv-vol"></b></span><span>energy <b class="c-green" id="cv-nrg"></b></span></div>
+          </div>
+          <div class="cv-body" id="cv-result" hidden>
+            <div class="cv-name c-orange">calibration ready</div>
+            <ul id="cv-summary"></ul>
+          </div>
+          <div class="cv-legend" id="cv-legend"></div>
+        </div>
         <div class="popup" id="popup" aria-live="polite"><div class="pop-label"></div><div class="pop-val"></div><div class="pop-sub"></div></div>
       </div>
     </div>
@@ -92,6 +106,7 @@
       <div class="enc" data-enc="time"    data-color="orange" tabindex="0" role="slider" aria-label="time of day"><div class="knob"><div class="cap"></div></div><span>time</span></div>
       <!-- demo: the knobs set the atmosphere · live: occupancy + time come from live data -->
       <div class="knob-panel">
+      <div class="panel-row">
       <div class="slide-wrap">
         <span class="slide-lab" data-for="demo">demo</span>
         <button class="slide" id="k-mode" role="switch" aria-checked="false" aria-label="live data"
@@ -100,26 +115,12 @@
         </button>
         <span class="slide-lab" data-for="live"><span class="led"></span>live data</span>
       </div>
-      <!-- calibrate: a one-time walk-through of a few scenarios, adjusted by ear -->
-      <div class="cal-row" id="cal-idle">
-        <button class="mini" id="k-cal-start" title="play a few scenarios and tune them by ear; the DJ learns this venue's levels">calibrate</button>
-        <span class="cal-info" id="cal-info"></span>
-        <button class="mini ghost" id="k-cal-reset" title="forget this venue's calibration">reset</button>
-      </div>
-      <div class="cal-row" id="cal-wiz" hidden>
-        <span class="cal-step" id="cal-step"></span>
-        <button class="mini ghost" data-cal="back">back</button>
-        <button class="mini" data-cal="another">another song</button>
-        <button class="mini hot" data-cal="next">sounds right →</button>
-        <button class="mini ghost" data-cal="stop">stop</button>
-      </div>
-      <div class="cal-result" id="cal-result" hidden>
-        <ul id="cal-summary"></ul>
-        <div class="cal-row">
-          <button class="mini ghost" data-cal="back">back</button>
-          <button class="mini" data-cal="discard">discard</button>
-          <button class="mini hot" data-cal="apply">apply</button>
-        </div>
+      <!-- one key for the whole calibration; the screen shows what's happening -->
+      <button class="key cal-key" id="k-cal" title="calibrate this venue (hold to cancel / reset)">
+        <span class="led"></span>
+        <svg viewBox="0 0 24 24"><path d="M6 4v16M12 4v16M18 4v16"/><rect x="3.5" y="13" width="5" height="3" rx="1" class="solid"/><rect x="9.5" y="7" width="5" height="3" rx="1" class="solid"/><rect x="15.5" y="11" width="5" height="3" rx="1" class="solid"/></svg>
+        <em>calibrate</em>
+      </button>
       </div>
       </div>
       </div>
