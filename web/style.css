@@ -243,7 +243,12 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .key .count { font-family: var(--mono); font-size: 9px; color: #999; }
 
 /* ── demo / live slide switch ───────────────────────────── */
-.slide-wrap { display: flex; align-items: center; gap: 10px; height: 68px; }
+.slide-wrap {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-top: 16px; padding: 10px 12px; border-radius: 10px;
+  background: linear-gradient(180deg, #c3c7ca, #cdd0d2);
+  box-shadow: inset 0 2px 3px rgba(0,0,0,.16), 0 1px 0 rgba(255,255,255,.7);
+}
 .slide-lab { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .06em; color: #8b9094; transition: color .2s; cursor: pointer; }
 .slide-lab.active { color: var(--ink); }
 .slide {
@@ -357,9 +362,8 @@ form .row { display: flex; gap: 7px; }
 
   /* Staff use it for play / skip / votes: put transport first, and let keys fill the row. */
   .kgroup { width: 100%; }
-  .kgroup.transport { order: -2; }
-  .kgroup.mode { order: -1; }
-  .slide-wrap { height: 44px; }
+  .kgroup.transport { order: -1; }
+  .slide-wrap { margin-top: 12px; }
   .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .key { width: auto; }
 

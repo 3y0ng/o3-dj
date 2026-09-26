@@ -90,21 +90,19 @@
       <div class="enc" data-enc="energy"  data-color="green"  tabindex="0" role="slider" aria-label="energy"><div class="knob"><div class="cap"></div></div><span>energy</span></div>
       <div class="enc" data-enc="occ"     data-color="white"  tabindex="0" role="slider" aria-label="occupancy"><div class="knob"><div class="cap"></div></div><span>occupancy</span></div>
       <div class="enc" data-enc="time"    data-color="orange" tabindex="0" role="slider" aria-label="time of day"><div class="knob"><div class="cap"></div></div><span>time</span></div>
+      <!-- demo: the knobs set the atmosphere · live: occupancy + time come from live data -->
+      <div class="slide-wrap">
+        <span class="slide-lab" data-for="demo">demo</span>
+        <button class="slide" id="k-mode" role="switch" aria-checked="false" aria-label="live data"
+                title="demo: set the atmosphere by hand · live: weather and occupancy come from live data">
+          <span class="thumb"></span>
+        </button>
+        <span class="slide-lab" data-for="live"><span class="led"></span>live data</span>
+      </div>
     </div>
 
     <!-- keys -->
     <div class="keys">
-      <div class="kgroup mode">
-        <h3>data</h3>
-        <div class="slide-wrap">
-          <span class="slide-lab" data-for="demo">demo</span>
-          <button class="slide" id="k-mode" role="switch" aria-checked="false" aria-label="live data"
-                  title="demo: set the atmosphere by hand · live: weather and occupancy come from live data">
-            <span class="thumb"></span>
-          </button>
-          <span class="slide-lab" data-for="live"><span class="led"></span>live</span>
-        </div>
-      </div>
       <div class="kgroup">
         <h3>genre</h3>
         <div class="krow" id="genre-keys"></div>
