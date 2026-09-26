@@ -84,14 +84,15 @@ def create_app(dj):
     def calibration():
         action = request.get_json(force=True).get("action")
         try:
-            if action == "save":
-                dj.save_calibration()
+            if action == "start":
+                dj.start_wizard()
             elif action == "reset":
                 dj.reset_calibration()
             else:
-                return jsonify({"error": "action must be save or reset"}), 400
-        except ValueError as e:
+                dj.wizard_action(action)  # another | next | back | apply | stop | discard
+        except (ValueError, RuntimeError) as e:
             return jsonify({"error": str(e)}), 400
+        dj.refresh_status()
         return ok()
 
     @app.post("/api/speakers")

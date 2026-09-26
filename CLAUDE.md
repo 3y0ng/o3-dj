@@ -40,8 +40,10 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   **O3's database must not be changed**: Supabase access is read-only (HEAD count or an existing RPC), key from `O3_SUPABASE_KEY`.
 - `o3dj/venue.py`: venue auto-detection (explicit config → Sonos household ID → public IP); `run.py` applies it before building
   the DJ, including the venue's `max_volume`. Wi-Fi SSID isn't usable (macOS redacts it).
-- Calibration: `DJ.save_calibration()` folds the knob trims into `data/calibration.json[venue][volume|energy][daypart]`;
-  `brain.targets(..., calibration)` applies it after the daypart curve. Saving must never change the audible level (tested).
+- `o3dj/calibrate.py`: one-time calibration walk-through. Six `SCENARIOS` are played (`DJ.start_wizard`/`wizard_action`),
+  staff adjust by ear, and `fit()` does a ridge regression toward the defaults for offset/busy/empty/rain/cloudy (volume and
+  energy). The model is stored per venue in `data/calibration.json` and used by `brain.targets(..., calibration)` in place of the
+  default weather/occupancy numbers; `calibrate.defaults(cfg)` reproduces uncalibrated behaviour exactly (tested).
 - `o3dj/server.py`: JSON API, `/ui/*` static files, `/media/*` (speakers stream cached files from this laptop over the LAN).
 - `data/` (gitignored): `state.json` (inputs, votes, history, running), `track_meta.json`, `cache/`, catalogue snapshot.
 

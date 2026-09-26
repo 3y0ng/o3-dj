@@ -28,7 +28,11 @@ async function api(path, body) {
 
 async function act(path, body) {
   try {
-    render(await api(path, body));
+    const data = await api(path, body);
+    // A button's result is authoritative (e.g. "sounds right" resets the knobs for the next scenario);
+    // only knob edits get the brief "don't fight the user's hand" protection.
+    if (path !== "/api/inputs") { lastInteraction = 0; pending = {}; clearTimeout(sendTimer); }
+    render(data);
   } catch (e) {
     flashFoot(e.message);
   }
@@ -181,13 +185,15 @@ function initKeys() {
   };
   $("#k-mode").addEventListener("click", () => setMode(S.mode === "live" ? "demo" : "live"));
   $$(".slide-lab").forEach((l) => l.addEventListener("click", () => setMode(l.dataset.for)));
-  $("#k-cal-save").addEventListener("click", async () => {
-    await act("/api/calibration", { action: "save" });
-    if (S.calibration) popup("saved", S.calibration.daypart, `default for ${S.calibration.venue || "this venue"} · vol ${fmtSigned(S.calibration.volume)}`, "var(--green)");
+  $("#k-cal-start").addEventListener("click", () => {
+    if (!confirm("Calibrate this venue?\n\nThe speakers will play a short song for each of 6 scenarios (quiet morning, lunch rush, rain…). " +
+                 "For each: blue knob = louder/softer, green knob = faster/slower, then 'sounds right'. Takes about 5 minutes.")) return;
+    act("/api/calibration", { action: "start" });
   });
   $("#k-cal-reset").addEventListener("click", () => {
-    if (confirm(`Forget the saved ${S.calibration.daypart} levels and go back to the defaults?`)) act("/api/calibration", { action: "reset" });
+    if (confirm("Forget this venue's calibration and go back to the default levels?")) act("/api/calibration", { action: "reset" });
   });
+  $$("[data-cal]").forEach((b) => b.addEventListener("click", () => act("/api/calibration", { action: b.dataset.cal })));
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
     // switching to manual keeps the current loudness as the starting point
@@ -311,9 +317,7 @@ function render(s, local = false) {
   const top = Object.entries(t.weights).sort((a, b) => b[1] - a[1])[0];
   $("#m-mix-val").textContent = top ? Math.round(top[1] * 100) + "%" : "";
 
-  const tick = $("#s-ticker span");
-  const text = t.reasons.join("   ·   ");
-  if (tick.textContent !== text) tick.textContent = text;
+  if (!renderCalibrationScreen(s)) setTicker(t.reasons.join("   ·   "));
 
   // encoders dimmed when they have no effect
   $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
@@ -354,17 +358,51 @@ function renderMode(s) {
 }
 
 function renderCalibration(s) {
-  const c = s.calibration, row = $(".cal-row");
-  row.hidden = !c;  // older server
+  const c = s.calibration, wiz = c && c.wizard;
+  const panel = $(".knob-panel");
+  panel.classList.toggle("calibrating", !!wiz);
+  $("#cal-idle").hidden = !c || !!wiz;
+  $("#cal-wiz").hidden = !wiz || wiz.proposal;
+  $("#cal-result").hidden = !wiz || !wiz.proposal;
   if (!c) return;
-  $("#cal-dp").textContent = c.daypart;
-  const saveBtn = $("#k-cal-save");
-  saveBtn.disabled = !c.unsaved || !s.inputs.auto;
-  saveBtn.title = !s.inputs.auto ? "switch auto vol on to calibrate" : c.unsaved ? `save the knob changes as the ${c.daypart} default` : "turn the volume / energy knobs first";
-  $(".led", saveBtn).className = "led" + (c.unsaved && s.inputs.auto ? " on" : "");
-  const saved = c.volume || c.energy;
-  $("#cal-info").textContent = saved ? `saved: vol ${fmtSigned(c.volume)} · nrg ${fmtSigned(c.energy, 2)}` : "defaults";
-  $("#k-cal-reset").hidden = !saved;
+  if (!wiz) {
+    $("#cal-info").textContent = c.saved_at ? `calibrated ${c.saved_at.slice(0, 10)}` : "not calibrated yet";
+    $("#k-cal-reset").hidden = !c.saved_at;
+    $("#cal-info").title = (c.summary || []).join("\n");
+    return;
+  }
+  const sc = wiz.scenario;
+  $("#cal-step").textContent = `${wiz.step}/${wiz.of}`;
+  $$('#cal-wiz [data-cal="back"]').forEach((b) => (b.disabled = wiz.step === 1));
+  if (wiz.proposal) {
+    const ul = $("#cal-summary"), html = wiz.summary.map((l) => `<li>${esc(l)}</li>`).join("");
+    if (ul.innerHTML !== html) ul.innerHTML = html;
+  }
+}
+
+function renderCalibrationScreen(s) {
+  // While calibrating, the screen describes the scenario instead of the DJ's reasons.
+  const wiz = s.calibration && s.calibration.wizard;
+  if (!wiz) return false;
+  const sc = wiz.scenario;
+  if (wiz.proposal) {
+    $("#s-state").textContent = "calibration ready";
+    $("#s-state").className = "np-state c-orange";
+    $("#s-title").textContent = "check the changes below";
+    $("#s-meta").textContent = "apply to keep them · discard to keep the old levels";
+    setTicker("calibration done: apply or discard below the knobs");
+  } else {
+    $("#s-state").textContent = `calibrate ${wiz.step}/${wiz.of} · ${sc.name}`;
+    $("#s-state").className = "np-state c-orange";
+    $("#s-meta").textContent = `${fmtHour(sc.hour)} · ${sc.weather} · ${sc.occupancy}% full · ${s.now ? s.now.title : ""}`;
+    setTicker("blue knob: louder / softer   ·   green knob: faster / slower (new song)   ·   then press 'sounds right'");
+  }
+  return true;
+}
+
+function setTicker(text) {
+  const tick = $("#s-ticker span");
+  if (tick.textContent !== text) tick.textContent = text;
 }
 
 function renderGenreKeys(s) {

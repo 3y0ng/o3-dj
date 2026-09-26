@@ -28,6 +28,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+[hidden] { display: none !important; }  /* flex/grid rules below must not un-hide things */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 button, .enc, .room { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 body {
@@ -252,9 +253,10 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .slide-wrap { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .cal-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
   border-top: 1px solid rgba(0,0,0,.08); padding-top: 9px; }
-.cal-save { display: inline-flex; align-items: center; gap: 6px; }
-.cal-save b { font-weight: 600; }
-.cal-save:disabled { opacity: .55; cursor: default; }
+.cal-step { font-family: var(--mono); font-size: 11px; color: var(--ink); }
+.cal-result ul { margin: 0; padding: 0 0 0 16px; font-family: var(--mono); font-size: 11px; color: var(--ink); line-height: 1.6; }
+.cal-result .cal-row { border-top: 0; padding-top: 6px; }
+.knob-panel.calibrating { box-shadow: inset 0 2px 3px rgba(0,0,0,.16), 0 0 0 2px var(--orange); }
 .cal-info { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
 .mini.ghost { background: transparent; box-shadow: none; color: var(--ink-soft); text-decoration: underline; padding: 6px 4px; }
 .slide-lab { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .06em; color: #8b9094; transition: color .2s; cursor: pointer; }

@@ -48,20 +48,16 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
     energy, volume, daypart = interp_curve(cfg["daypart_curve"], hour)
     reasons = [f"{daypart} {int(hour):02d}:{int(hour % 1 * 60):02d} -> energy {energy:.2f}, vol {volume:.0f}"]
 
-    # Venue calibration: staff-saved offsets for this part of the day (see DJ.save_calibration)
-    cal_v = (calibration or {}).get("volume", {}).get(daypart, 0)
-    cal_e = (calibration or {}).get("energy", {}).get(daypart, 0)
-    if cal_v or cal_e:
-        volume += cal_v
-        energy += cal_e
-        reasons.append(f"calibrated {daypart}: vol {cal_v:+d}, energy {cal_e:+.2f}")
+    # A calibrated venue (see calibrate.py) replaces the default weather/occupancy numbers with its own fit.
+    model = (calibration or {}).get("model")
 
     selected = [g for g in inputs.genres if g in all_genres] or list(all_genres)
     weights = {g: 1.0 for g in selected}
 
     w = cfg["weather"].get(inputs.weather, cfg["weather"]["clear"])
-    energy += w["energy"]
-    volume += w["volume"]
+    if not model:
+        energy += w["energy"]
+        volume += w["volume"]
     for g, boost in w.get("boost", {}).items():
         if g not in all_genres:
             continue
@@ -71,15 +67,22 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
             weights[g] = cfg.get("unselected_boost_base", 0.35) * boost
     if inputs.weather != "clear":
         parts = [f"{inputs.weather}"]
-        if w["energy"]:
+        if w["energy"] and not model:
             parts.append(f"energy {w['energy']:+.2f}")
-        if w["volume"]:
+        if w["volume"] and not model:
             parts.append(f"vol {w['volume']:+d}")
         if w.get("boost"):
             parts.append("+" + "/".join(all_genres.get(g, g) for g in w["boost"] if g in weights))
         reasons.append(" ".join(parts))
 
-    if inputs.occupancy_enabled:
+    if model:
+        from .calibrate import effects
+        de, dv = effects(model, inputs.weather, inputs.occupancy, inputs.occupancy_enabled)
+        energy += de
+        volume += dv
+        occ_txt = f", {inputs.occupancy}% full" if inputs.occupancy_enabled else ""
+        reasons.append(f"calibrated ({inputs.weather}{occ_txt}) -> energy {de:+.2f}, vol {dv:+.0f}")
+    elif inputs.occupancy_enabled:
         occ = cfg["occupancy"]
         f = _clip((inputs.occupancy - occ["threshold"]) / (100 - occ["threshold"]), 0, 1)
         if f > 0:

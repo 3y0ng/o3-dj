@@ -42,18 +42,24 @@ Knob trims (volume/energy) reset automatically when the real clock moves into th
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
 
-## Calibrating volume and energy
+## Calibrating a venue (once, about 5 minutes)
 
-The defaults are a starting point; every venue sounds different. To calibrate:
+Press **calibrate** under the knobs. The speakers play a short song (starting 45 s in) for each of six scenarios:
+quiet morning, lunchtime rush, rainy afternoon, busy after work, winding down, and a rainy near-empty night.
+The screen shows the scenario. For each one:
 
-1. Wait for (or simulate with the orange time knob) the part of the day you want to tune: late night, early morning, morning,
-   afternoon, early evening or evening.
-2. Turn the **blue** (volume) and **green** (energy) knobs until the room sounds right.
-3. Press **save as <evening> default** under the knobs.
+- **blue knob**: louder / softer (applied straight away)
+- **green knob**: faster / slower (a new, faster or calmer song starts once you stop turning)
+- **another song**: hear a different track at the same settings
+- **sounds right →**: next scenario (**back** to redo one, **stop** to abandon)
 
-That offset is now this venue's default for that part of the day (kept in `data/calibration.json` on the DJ laptop), the knobs go
-back to zero, and nothing audible changes. **reset** forgets it. Weather and occupancy still adjust on top of the calibrated level.
-Each venue also has a `max_volume` safety cap in `config.json` (`venues.<code>.max_volume`; Newtown 75, others 60).
+At the end it works out, from your six answers, how loud and upbeat this venue should be overall, how much louder
+when it's packed, how much quieter when it's empty, and what rain and cloud should do. It shows that in plain words;
+**apply** saves it for this venue (`data/calibration.json` on the DJ laptop), **discard** keeps the old levels.
+Afterwards the DJ goes back to normal. You can re-run it any time, and **reset** returns to the built-in defaults.
+
+The knobs still work day to day as temporary tweaks (they reset when the time of day moves on). Each venue also has a
+`max_volume` safety cap in `config.json` (Newtown 75, others 60).
 
 ## Which venue am I in?
 

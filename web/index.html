@@ -100,13 +100,27 @@
         </button>
         <span class="slide-lab" data-for="live"><span class="led"></span>live data</span>
       </div>
-      <!-- calibrate: set the knobs by ear, then save them as this venue's default for this time of day -->
-      <div class="cal-row">
-        <button class="mini cal-save" id="k-cal-save" title="make the current volume & energy knobs the default for this time of day at this venue">
-          <span class="led"></span>save as <b id="cal-dp">…</b> default
-        </button>
+      <!-- calibrate: a one-time walk-through of a few scenarios, adjusted by ear -->
+      <div class="cal-row" id="cal-idle">
+        <button class="mini" id="k-cal-start" title="play a few scenarios and tune them by ear; the DJ learns this venue's levels">calibrate</button>
         <span class="cal-info" id="cal-info"></span>
-        <button class="mini ghost" id="k-cal-reset" title="forget the saved levels for this time of day">reset</button>
+        <button class="mini ghost" id="k-cal-reset" title="forget this venue's calibration">reset</button>
+      </div>
+      <div class="cal-row" id="cal-wiz" hidden>
+        <span class="cal-step" id="cal-step"></span>
+        <button class="mini ghost" data-cal="back">back</button>
+        <button class="mini" data-cal="another">another song</button>
+        <button class="mini hot" data-cal="next">sounds right →</button>
+        <button class="mini ghost" data-cal="stop">stop</button>
+      </div>
+      <div class="cal-result" id="cal-result" hidden>
+        <ul id="cal-summary"></ul>
+        <div class="cal-row">
+          <button class="mini ghost" data-cal="back">back</button>
+          <button class="mini" data-cal="discard">discard</button>
+          <button class="mini hot" data-cal="apply">apply</button>
+        </div>
+      </div>
       </div>
       </div>
     </div>

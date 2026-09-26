@@ -152,6 +152,11 @@ class SonosPlayer:
         with self.lock:
             self.ctrl.play_from_queue(index)
 
+    def seek(self, seconds):
+        with self.lock:
+            s = int(seconds)
+            self.ctrl.seek(f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}")
+
     def play(self):
         with self.lock:
             self.ctrl.play()
@@ -287,6 +292,11 @@ class MockPlayer:
     def play_index(self, index):
         with self.lock:
             self.index, self.state, self.started_at = index, "PLAYING", time.monotonic()
+
+    def seek(self, seconds):
+        with self.lock:
+            if self.state == "PLAYING":
+                self.started_at = time.monotonic() - seconds
 
     def play(self):
         with self.lock:

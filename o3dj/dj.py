@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import brain
+from . import brain, calibrate
 from .config import DATA
 from .live import Live
 from .store import JsonFile
@@ -67,6 +67,7 @@ class DJ:
         self._last_effective = None
 
         self.lock = threading.RLock()
+        self.wizard = None       # calibration walk-through in progress (see start_wizard)
         self.running = False     # DJ is in charge of the speakers
         self.paused = False
         self.now_id = None
@@ -138,6 +139,13 @@ class DJ:
     def effective_inputs(self):
         """What the brain sees: manual inputs in demo mode; in live mode the atmosphere comes
         from feeds (or a staff override) and time follows the venue clock."""
+        if self.wizard and not self.wizard.get("proposal"):
+            sc = calibrate.SCENARIOS[self.wizard["i"]]
+            i = brain.Inputs.from_dict(self.inputs.to_dict())
+            i.hour_override, i.weather = sc["hour"], sc["weather"]
+            i.occupancy, i.occupancy_enabled = sc["occupancy"], True
+            i.auto, i.volume_trim, i.energy_trim = True, self.wizard["vol"], self.wizard["nrg"]
+            return i
         if self.mode != "live":
             return self.inputs
         e = self.live.effective()
@@ -159,32 +167,6 @@ class DJ:
 
     def compute(self):
         return brain.targets(self.effective_inputs(), self.cfg, self.hour_now(), self.library.genres(), self.calibration)
-
-    def save_calibration(self):
-        """Bake the current knob trims into this venue's default for the current part of the day."""
-        with self.lock:
-            if not self.inputs.auto:
-                raise ValueError("switch auto vol on to calibrate (manual volume isn't tied to a time of day)")
-            dp = self.targets["daypart"]
-            cal = self.calibration_store.data.setdefault(self.venue_key, {"volume": {}, "energy": {}})
-            v = cal["volume"][dp] = int(cal["volume"].get(dp, 0) + self.inputs.volume_trim)
-            e = cal["energy"][dp] = round(cal["energy"].get(dp, 0) + self.inputs.energy_trim, 2)
-            self.inputs.volume_trim, self.inputs.energy_trim = 0, 0.0
-            self.calibration_store.save()
-            self.save()
-            self.targets = self.compute()  # same sound: the trim moved into the calibration
-            self.event(f"saved {dp} for {self.live.cfg.get('venue_name') or 'this venue'}: vol {v:+d}, energy {e:+.2f}")
-
-    def reset_calibration(self):
-        with self.lock:
-            dp = self.targets["daypart"]
-            cal = self.calibration_store.data.get(self.venue_key, {})
-            for k in ("volume", "energy"):
-                cal.get(k, {}).pop(dp, None)
-            self.calibration_store.save()
-            self.targets = self.compute()
-            self.dirty_at = time.time()
-            self.event(f"{dp} calibration reset to defaults")
 
     def available(self, t):
         if self.failed(t.id):
@@ -238,6 +220,99 @@ class DJ:
         dur = self.meta.duration(self.now_id) if self.now_id else None
         dur = dur or st.get("duration") or None
         return None if not dur else dur - st.get("elapsed", 0)
+
+    # -- calibration walk-through ----------------------------------------------------------
+    def start_wizard(self):
+        """Play a song for each scenario; staff adjust by ear; then fit this venue's model."""
+        with self.lock:
+            self.wizard = {"i": 0, "vol": 0, "nrg": 0.0, "samples": [], "repick_at": None,
+                           "was_running": self.running, "proposal": None}
+            self.event("calibration started: adjust each scenario until it sounds right")
+            self._wizard_play()
+
+    def _wizard_play(self):
+        """Start a song matching the current scenario (replacing the queue), past its intro, at the target volume."""
+        self.targets = self.compute()
+        picks = self.pick(2)
+        if not picks:
+            raise RuntimeError("nothing playable for this scenario")
+        self.uri_map.clear()
+        self.id_uri.clear()
+        self.player.start([self.item_for(t) for t in picks])
+        self.running, self.paused = True, False
+        self._set_now(picks[0].id)
+        self.upcoming = [t.id for t in picks[1:]]
+        self.wizard["repick_at"] = None
+        self._apply_volume(max_step=100)
+        try:
+            dur = self.meta.duration(picks[0].id) or 0
+            if dur > 90:
+                if self.player.live:
+                    time.sleep(0.6)  # let the speaker start before seeking
+                self.player.seek(45)
+        except Exception:
+            log.info("seek not supported here")
+
+    def wizard_action(self, action):
+        with self.lock:
+            w = self.wizard
+            if not w:
+                raise ValueError("calibration isn't running")
+            if action == "another":
+                self._wizard_play()
+            elif action == "next":
+                sc = calibrate.SCENARIOS[w["i"]]
+                w["samples"].append({**sc, "volume": self.targets["volume"], "energy": self.targets["energy"]})
+                w["i"] += 1
+                w["vol"], w["nrg"] = 0, 0.0
+                if w["i"] < len(calibrate.SCENARIOS):
+                    self._wizard_play()
+                else:
+                    w["i"] -= 1
+                    w["proposal"] = calibrate.fit(w["samples"], self.cfg)
+                    self.player.pause()
+                    self.event("calibration ready: apply or discard")
+            elif action == "back":
+                if w["proposal"]:
+                    w["proposal"] = None
+                elif w["i"] > 0:
+                    w["i"] -= 1
+                w["samples"] = w["samples"][:w["i"]]
+                w["vol"], w["nrg"] = 0, 0.0
+                self._wizard_play()
+            elif action == "apply":
+                if not w["proposal"]:
+                    raise ValueError("finish the scenarios first")
+                self.calibration_store.data[self.venue_key] = {
+                    "model": w["proposal"], "samples": w["samples"],
+                    "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                self.calibration_store.save()
+                self.event(f"calibration saved for {self.live.cfg.get('venue_name') or 'this venue'}")
+                self._end_wizard()
+            elif action in ("stop", "discard"):
+                self.event("calibration discarded" if w["proposal"] else "calibration stopped")
+                self._end_wizard()
+            else:
+                raise ValueError(f"unknown action {action!r}")
+
+    def _end_wizard(self):
+        was_running = self.wizard["was_running"]
+        self.wizard = None
+        self.targets = self.compute()
+        if was_running:
+            self.start()      # fresh queue for the real atmosphere
+        else:
+            self.player.pause()
+            self.running = False
+            self.save()
+
+    def reset_calibration(self):
+        with self.lock:
+            self.calibration_store.data.pop(self.venue_key, None)
+            self.calibration_store.save()
+            self.targets = self.compute()
+            self.dirty_at = time.time()
+            self.event("calibration reset to defaults")
 
     # -- transport ---------------------------------------------------------------
     def start(self):
@@ -447,6 +522,15 @@ class DJ:
     # -- inputs --------------------------------------------------------------------
     def set_inputs(self, patch):
         with self.lock:
+            if self.wizard and not self.wizard.get("proposal"):
+                if "volume_trim" in patch:
+                    self.wizard["vol"] = int(max(-50, min(50, patch["volume_trim"])))
+                if "energy_trim" in patch:
+                    self.wizard["nrg"] = round(max(-0.5, min(0.5, float(patch["energy_trim"]))), 2)
+                    self.wizard["repick_at"] = time.time() + 1.5  # faster/slower: new song once you stop turning
+                self.targets = self.compute()
+                self._apply_volume(max_step=100)
+                return
             changed = set()
             if self.mode == "live":
                 patch = dict(patch)
@@ -647,6 +731,11 @@ class DJ:
             st = self.player.status()
             self.status = st
             self.targets = self.compute()
+            if self.wizard:
+                w = self.wizard
+                if not w.get("proposal") and ((w["repick_at"] and time.time() >= w["repick_at"]) or st["state"] == "STOPPED"):
+                    self._wizard_play()
+                return
             self._check_daypart()
             self._follow_live()
             if not self.running:
@@ -768,6 +857,20 @@ class DJ:
                 "up": v.get("up", 0), "down": v.get("down", 0), "plays": v.get("plays", 0),
                 "cached": self.cache.has(t)}
 
+    def _calibration_snapshot(self):
+        saved = self.calibration
+        out = {"venue": self.live.cfg.get("venue_name") or self.live.cfg.get("venue"),
+               "venue_detected_by": self.live.cfg.get("venue_detected_by"),
+               "saved_at": saved.get("at"), "summary": calibrate.describe(saved["model"], self.cfg) if saved.get("model") else None,
+               "wizard": None}
+        w = self.wizard
+        if w:
+            sc = calibrate.SCENARIOS[w["i"]]
+            out["wizard"] = {"step": w["i"] + 1, "of": len(calibrate.SCENARIOS), "scenario": sc,
+                             "proposal": bool(w["proposal"]),
+                             "summary": calibrate.describe(w["proposal"], self.cfg) if w["proposal"] else None}
+        return out
+
     def snapshot(self):
         with self.lock:
             lib = self.library.all()
@@ -809,14 +912,6 @@ class DJ:
                 "cache": {"files": len(self.cache.names), "mb": round(self.cache.usage_mb()),
                           "analysed": self.meta.count(), "tracks": len(lib)},
                 "events": list(self.events),
-                "calibration": {
-                    "daypart": self.targets["daypart"],
-                    "venue": self.live.cfg.get("venue_name") or self.live.cfg.get("venue"),
-                    "venue_detected_by": self.live.cfg.get("venue_detected_by"),
-                    "volume": self.calibration.get("volume", {}).get(self.targets["daypart"], 0),
-                    "energy": self.calibration.get("energy", {}).get(self.targets["daypart"], 0),
-                    "unsaved": bool(self.inputs.volume_trim or self.inputs.energy_trim),
-                    "all": self.calibration,
-                },
+                "calibration": self._calibration_snapshot(),
                 "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"]},
             }
