@@ -51,26 +51,28 @@
 
   "mock_track_seconds": 45,
 
+  "venues": {
+    "sydney_01":    { "name": "Newtown",   "address": "32-38 King St, Newtown",           "timezone": "Australia/Sydney",    "lat": -33.889, "lon": 151.187 },
+    "sydney_02":    { "name": "Sydney",    "address": "6 Harbour St, Haymarket",          "timezone": "Australia/Sydney",    "lat": -33.877, "lon": 151.202 },
+    "melbourne_01": { "name": "Southbank", "address": "87 Queens Bridge St, Southbank",   "timezone": "Australia/Melbourne", "lat": -37.824, "lon": 144.961 },
+    "melbourne_02": { "name": "Brunswick", "address": "268 Barkly St, Brunswick",         "timezone": "Australia/Melbourne", "lat": -37.770, "lon": 144.957 },
+    "auckland_01":  { "name": "Auckland",  "address": "104 Carlton Gore Rd, Newmarket",   "timezone": "Pacific/Auckland",    "lat": -36.868, "lon": 174.777 }
+  },
+
   "live": {
+    "venue": null,
     "timezone": null,
     "capacity": null,
     "stale_after_minutes": 15,
     "override_minutes": 60,
     "weather": { "lat": null, "lon": null, "poll_seconds": 600 },
     "occupancy": {
-      "supabase_url": "",
+      "mode": "o3",
+      "supabase_url": "https://wpeibttggxpaianedpvm.supabase.co",
+      "location_code": null,
       "key_env": "O3_SUPABASE_KEY",
-      "mode": "count",
-      "table": "",
-      "site_column": "",
-      "site_value": null,
-      "start_column": "",
-      "end_column": "",
-      "max_visit_hours": 8,
-      "extra_filters": {},
-      "rpc": "",
-      "rpc_args": {},
-      "result_key": "count",
+      "email_env": "O3_DJ_EMAIL",
+      "password_env": "O3_DJ_PASSWORD",
       "poll_seconds": 60
     }
   }

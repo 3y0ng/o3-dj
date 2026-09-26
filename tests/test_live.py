@@ -133,6 +133,118 @@ def test_live_weather_change_repicks_without_touching_next(tmp_path, monkeypatch
 
 def test_venue_timezone(tmp_path):
     dj = make_dj(tmp_path)
-    dj.cfg = {**CFG, "live": {"timezone": "Pacific/Auckland"}}
+    dj.live.cfg["timezone"] = "Pacific/Auckland"
     nz = datetime.now(timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo("Pacific/Auckland"))
     assert abs(dj.hour_now() - (nz.hour + nz.minute / 60)) < 0.05
+
+
+# -- O3 mode: existing get_location_occupancy_counts() as a signed-in app user ------------
+
+class FakeSupabase:
+    """Records every request; only allows sign-in, the occupancy function and reading venues."""
+    ALLOWED = {("POST", "/auth/v1/token"), ("POST", "/rest/v1/rpc/get_location_occupancy_counts"),
+               ("GET", "/rest/v1/physical_location")}
+
+    def __init__(self, occupancy=58, red=160, expire_first_token=False):
+        self.calls, self.occupancy, self.red = [], occupancy, red
+        self.tokens_issued, self.expire_first_token = 0, expire_first_token
+
+    def _resp(self, status, data):
+        class R:
+            status_code = status
+            def json(self): return data
+            def raise_for_status(self):
+                if status >= 400: raise RuntimeError(status)
+        return R()
+
+    def handle(self, method, url, **kw):
+        path = url.split(".co", 1)[1]
+        assert (method, path) in self.ALLOWED, f"unexpected {method} {path}"
+        self.calls.append((method, path, kw))
+        if path == "/auth/v1/token":
+            self.tokens_issued += 1
+            return self._resp(200, {"access_token": f"t{self.tokens_issued}", "refresh_token": "r", "expires_in": 3600})
+        auth = kw["headers"]["Authorization"]
+        if self.expire_first_token and auth == "Bearer t1":
+            return self._resp(401, {})
+        if path == "/rest/v1/physical_location":
+            return self._resp(200, [{"location_name": "Newtown", "green_capacity_threshold": 120,
+                                     "red_capacity_threshold": self.red}])
+        return self._resp(200, [{"location_code": "sydney_01", "occupancy": self.occupancy}])
+
+
+O3_CFG = {"mode": "o3", "supabase_url": "https://proj.supabase.co", "location_code": "sydney_01",
+          "key": "anon", "email": "dj@o3.test", "password": "pw"}
+
+
+def _o3_feed(monkeypatch, fake, capacity=None, cfg=O3_CFG):
+    monkeypatch.setattr(live_mod.requests, "post", lambda url, **kw: fake.handle("POST", url, **kw))
+    monkeypatch.setattr(live_mod.requests, "get", lambda url, **kw: fake.handle("GET", url, **kw))
+    for verb in ("patch", "put", "delete"):
+        monkeypatch.setattr(live_mod.requests, verb, lambda *a, **k: (_ for _ in ()).throw(AssertionError("write")))
+    return OccupancyFeed(cfg, capacity)
+
+
+def test_o3_mode_signs_in_and_uses_existing_function(monkeypatch):
+    fake = FakeSupabase(occupancy=58, red=160)
+    feed = _o3_feed(monkeypatch, fake)
+    assert feed.configured and feed.poll(force=True), feed.error
+    assert feed.value == 36 and feed.detail["count"] == 58 and feed.detail["capacity"] == 160  # 58/160
+    assert feed.detail["venue"] == "Newtown"
+    rpc = next(c for c in fake.calls if "rpc" in c[1])
+    assert rpc[2]["json"] == {"p_location_codes": ["sydney_01"]}
+    assert rpc[2]["headers"]["Authorization"] == "Bearer t1" and rpc[2]["headers"]["apikey"] == "anon"
+    signin = fake.calls[0]
+    assert signin[2]["params"] == {"grant_type": "password"} and signin[2]["json"]["email"] == "dj@o3.test"
+
+
+def test_o3_mode_config_capacity_wins(monkeypatch):
+    fake = FakeSupabase(occupancy=40)
+    feed = _o3_feed(monkeypatch, fake, capacity=80)
+    feed.poll(force=True)
+    assert feed.value == 50
+    assert not any(c[1] == "/rest/v1/physical_location" for c in fake.calls)
+
+
+def test_o3_mode_recovers_from_expired_session(monkeypatch):
+    fake = FakeSupabase(expire_first_token=True)
+    feed = _o3_feed(monkeypatch, fake)
+    assert feed.poll(force=True), feed.error
+    assert fake.tokens_issued == 2 and feed.value is not None
+
+
+def test_o3_mode_lists_what_is_missing(monkeypatch):
+    for k in ("O3_SUPABASE_KEY", "O3_DJ_EMAIL", "O3_DJ_PASSWORD"):
+        monkeypatch.delenv(k, raising=False)
+    feed = OccupancyFeed({"mode": "o3", "supabase_url": "https://proj.supabase.co"}, None)
+    missing = " ".join(feed.missing)
+    assert not feed.configured
+    assert "location_code" in missing and "O3_SUPABASE_KEY" in missing and "O3_DJ_EMAIL" in missing
+    monkeypatch.setenv("O3_SUPABASE_KEY", "anon"); monkeypatch.setenv("O3_DJ_EMAIL", "a"); monkeypatch.setenv("O3_DJ_PASSWORD", "b")
+    feed.cfg["location_code"] = "sydney_01"
+    assert feed.configured
+
+
+def test_o3_sign_in_failure_is_reported_not_raised(monkeypatch):
+    class Bad(FakeSupabase):
+        def handle(self, method, url, **kw):
+            if "/auth/" in url:
+                return self._resp(400, {})
+            return super().handle(method, url, **kw)
+    feed = _o3_feed(monkeypatch, Bad())
+    assert not feed.poll(force=True)
+    assert feed.value is None and "sign-in failed" in feed.error
+
+
+def test_venue_preset_fills_timezone_weather_and_code():
+    from o3dj.live import resolve_live_config
+    cfg = {**CFG, "live": {**CFG["live"], "venue": "melbourne_02"}}
+    live = resolve_live_config(cfg)
+    assert live["timezone"] == "Australia/Melbourne" and live["venue_name"] == "Brunswick"
+    assert live["weather"]["lat"] == CFG["venues"]["melbourne_02"]["lat"]
+    assert live["occupancy"]["location_code"] == "melbourne_02"
+    # explicit settings win
+    cfg["live"] = {**cfg["live"], "timezone": "UTC", "occupancy": {**CFG["live"]["occupancy"], "location_code": "x"}}
+    live = resolve_live_config(cfg)
+    assert live["timezone"] == "UTC" and live["occupancy"]["location_code"] == "x"
+    assert "venue" not in CFG["live"] or CFG["live"]["venue"] is None  # config.json itself untouched

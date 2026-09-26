@@ -258,11 +258,13 @@ function render(s, local = false) {
     oEl.className = "c-dim";
   } else {
     const temp = L.weather && L.weather.detail && L.weather.detail.temp_c != null ? ` ${Math.round(L.weather.detail.temp_c)}°` : "";
-    wEl.textContent = L.weather_src === "off" ? "no weather feed" : L.weather_src === "stale" ? "weather stale" :
+    wEl.textContent = L.weather_src === "off" ? "set venue" : L.weather_src === "stale" ? "weather stale" :
       (WEATHER_GLYPH[i.weather] || i.weather) + (L.weather_src === "live" ? temp : "") + ovr("weather");
     wEl.className = L.weather_src === "live" || L.weather_src === "override" ? "c-blue" : "c-red";
     const d = (L.occupancy && L.occupancy.detail) || {};
-    oEl.textContent = L.occupancy_src === "off" ? "no occupancy feed" : L.occupancy_src === "stale" ? "occ stale" :
+    const miss = (L.occupancy && L.occupancy.missing) || [];
+    oEl.title = L.occupancy_src === "off" ? "needs: " + miss.join(", ") : (L.occupancy && L.occupancy.error) || "";
+    oEl.textContent = L.occupancy_src === "off" ? "occ setup needed" : L.occupancy_src === "stale" ? "occ stale" :
       `occ ${i.occupancy}%` + (L.occupancy_src === "live" && d.count != null ? ` (${d.count}/${d.capacity})` : "") + ovr("occupancy");
     oEl.className = L.occupancy_src === "live" || L.occupancy_src === "override" ? "c-white" : "c-red";
   }

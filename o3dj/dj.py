@@ -128,7 +128,7 @@ class DJ:
         self.store.save()
 
     def hour_now(self):
-        tz = self.cfg.get("live", {}).get("timezone")
+        tz = self.live.cfg.get("timezone")
         now = datetime.now(ZoneInfo(tz)) if tz else datetime.now()
         return now.hour + now.minute / 60
 
@@ -467,6 +467,13 @@ class DJ:
             e = self.live.effective()
             self.event("LIVE mode: " + f"weather {e['weather_src']}, occupancy {e['occupancy_src']}" if mode == "live"
                        else "DEMO mode: manual atmosphere")
+            if mode == "live":
+                if not self.live.cfg.get("venue"):
+                    self.event("live setup: set live.venue in config.local.json")
+                elif self.live.occupancy.missing:
+                    self.event("occupancy setup needs: " + ", ".join(self.live.occupancy.missing))
+                elif self.live.occupancy.error:
+                    self.event("occupancy: " + self.live.occupancy.error)
 
     def clear_override(self, key):
         with self.lock:

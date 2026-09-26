@@ -75,7 +75,8 @@ class Feed:
 
     def status(self):
         return {"configured": self.configured, "value": self.value, "detail": self.detail,
-                "age_s": None if not self.at else int(self.age()), "error": self.error}
+                "age_s": None if not self.at else int(self.age()), "error": self.error,
+                "missing": getattr(self, "missing", [])}
 
 
 class WeatherFeed(Feed):
@@ -99,28 +100,124 @@ class WeatherFeed(Feed):
         return value, {"temp_c": cur.get("temperature_2m"), "code": cur.get("weather_code")}
 
 
+class SupabaseSession:
+    """Signs in as an O3 app user (email + password grant) and keeps the access token fresh.
+    This is the same sign-in the O3 app does; it doesn't change anything in the database."""
+
+    def __init__(self, url, anon_key, email, password):
+        self.url, self.anon_key, self.email, self.password = url, anon_key, email, password
+        self.access_token, self.refresh_token, self.expires_at = None, None, 0.0
+
+    def _grant(self, grant_type, body):
+        r = requests.post(f"{self.url}/auth/v1/token", params={"grant_type": grant_type}, json=body, timeout=10,
+                          headers={**UA, "apikey": self.anon_key})
+        if r.status_code >= 400:
+            raise RuntimeError(f"sign-in failed ({r.status_code})")
+        data = r.json()
+        self.access_token, self.refresh_token = data["access_token"], data.get("refresh_token")
+        self.expires_at = time.time() + int(data.get("expires_in", 3600))
+
+    def token(self, force=False):
+        if force or not self.access_token or time.time() > self.expires_at - 120:
+            if self.refresh_token and not force:
+                try:
+                    self._grant("refresh_token", {"refresh_token": self.refresh_token})
+                    return self.access_token
+                except RuntimeError:
+                    pass
+            self._grant("password", {"email": self.email, "password": self.password})
+        return self.access_token
+
+
 class OccupancyFeed(Feed):
-    """Read-only. mode 'count': HEAD a table with filters and read the exact count.
-    mode 'rpc': call an existing function that returns a number (or {result_key: n})."""
+    """Read-only occupancy from Supabase.
+
+    mode 'o3'    : O3's existing get_location_occupancy_counts() for `location_code`, called as a signed-in
+                   app user; capacity = the venue's red_capacity_threshold in physical_location (unless
+                   `capacity` is set). No database changes.
+    mode 'count' : HEAD a table with filters and read the exact count.
+    mode 'rpc'   : call another existing function that returns a number (or {result_key: n}).
+    """
     name = "occupancy"
 
     def __init__(self, cfg, capacity):
         super().__init__(cfg.get("poll_seconds", 60))
-        self.cfg, self.capacity = cfg, capacity
+        self.cfg, self.capacity, self.fixed_capacity = cfg, capacity, capacity
         self.url = (cfg.get("supabase_url") or "").rstrip("/")
+        self.session = None
+        self.venue = {}
+        self.capacity_at = 0.0
+
+    def _secret(self, name, env_default):
+        return os.environ.get(self.cfg.get(f"{name}_env", env_default)) or self.cfg.get(name)
 
     @property
     def key(self):
-        return os.environ.get(self.cfg.get("key_env", "O3_SUPABASE_KEY")) or self.cfg.get("key")
+        return self._secret("key", "O3_SUPABASE_KEY")
+
+    @property
+    def missing(self):
+        """What still needs setting up (shown on the controller)."""
+        c, need = self.cfg, []
+        if not self.url:
+            need.append("supabase_url")
+        if c.get("mode") == "o3":
+            if not c.get("location_code"):
+                need.append("location_code")
+            if not self.key:
+                need.append("O3_SUPABASE_KEY (the app's public anon key)")
+            if not self._secret("email", "O3_DJ_EMAIL") or not self._secret("password", "O3_DJ_PASSWORD"):
+                need.append("O3_DJ_EMAIL / O3_DJ_PASSWORD (an O3 app account)")
+        else:
+            if not self.key:
+                need.append("O3_SUPABASE_KEY")
+            if not self.capacity:
+                need.append("capacity")
+            if not ((c.get("mode") == "count" and c.get("table")) or (c.get("mode") == "rpc" and c.get("rpc"))):
+                need.append("table or rpc")
+        return need
 
     @property
     def configured(self):
-        mode = self.cfg.get("mode")
-        ready = (mode == "count" and self.cfg.get("table")) or (mode == "rpc" and self.cfg.get("rpc"))
-        return bool(self.url and self.key and self.capacity and ready)
+        return not self.missing
 
-    def _headers(self):
-        return {**UA, "apikey": self.key, "Authorization": f"Bearer {self.key}"}
+    def _bearer(self, force=False):
+        if self.cfg.get("mode") == "o3" or self._secret("email", "O3_DJ_EMAIL"):
+            if self.session is None:
+                self.session = SupabaseSession(self.url, self.key, self._secret("email", "O3_DJ_EMAIL"),
+                                               self._secret("password", "O3_DJ_PASSWORD"))
+            return self.session.token(force)
+        return self.key
+
+    def _headers(self, force=False):
+        return {**UA, "apikey": self.key, "Authorization": f"Bearer {self._bearer(force)}"}
+
+    def _get(self, path, **kw):
+        r = requests.get(f"{self.url}{path}", headers=self._headers(), timeout=10, **kw)
+        if r.status_code == 401:
+            r = requests.get(f"{self.url}{path}", headers=self._headers(force=True), timeout=10, **kw)
+        r.raise_for_status()
+        return r.json()
+
+    def _rpc(self, fn, args):
+        # Only existing read-only functions are called this way (see docs/live-mode-plan.md).
+        r = requests.post(f"{self.url}/rest/v1/rpc/{fn}", json=args, headers=self._headers(), timeout=10)
+        if r.status_code == 401:
+            r = requests.post(f"{self.url}/rest/v1/rpc/{fn}", json=args, headers=self._headers(force=True), timeout=10)
+        r.raise_for_status()
+        return r.json()
+
+    def _o3_capacity(self, code):
+        """`live.capacity` in config wins; otherwise the venue's red threshold from physical_location."""
+        if self.fixed_capacity:
+            return self.fixed_capacity
+        if not self.capacity or time.time() - self.capacity_at > 3600:
+            rows = self._get("/rest/v1/physical_location", params={
+                "location_code": f"eq.{code}", "select": "location_name,green_capacity_threshold,red_capacity_threshold"})
+            if not rows or not rows[0].get("red_capacity_threshold"):
+                raise RuntimeError(f"no capacity for {code}")
+            self.capacity, self.venue, self.capacity_at = rows[0]["red_capacity_threshold"], rows[0], time.time()
+        return self.capacity
 
     def count_params(self, now=None):
         c = self.cfg
@@ -139,6 +236,15 @@ class OccupancyFeed(Feed):
 
     def fetch(self):
         c = self.cfg
+        if c["mode"] == "o3":
+            code = c["location_code"]
+            capacity = self._o3_capacity(code)
+            rows = self._rpc("get_location_occupancy_counts", {"p_location_codes": [code]})
+            count = next((int(r["occupancy"]) for r in rows or [] if r.get("location_code") == code), 0)
+            pct = max(0, min(100, round(100 * count / capacity)))
+            venue = self.venue or {}
+            return pct, {"count": count, "capacity": capacity, "venue": venue.get("location_name", code),
+                         "green": venue.get("green_capacity_threshold")}
         if c["mode"] == "count":
             r = requests.head(f"{self.url}/rest/v1/{c['table']}", params=self.count_params(), timeout=10,
                               headers={**self._headers(), "Prefer": "count=exact", "Range": "0-0"})
@@ -148,10 +254,7 @@ class OccupancyFeed(Feed):
             if count is None:
                 raise RuntimeError("no count in response")
         else:
-            r = requests.post(f"{self.url}/rest/v1/rpc/{c['rpc']}", json=c.get("rpc_args") or {},
-                              headers=self._headers(), timeout=10)
-            r.raise_for_status()
-            data = r.json()
+            data = self._rpc(c["rpc"], c.get("rpc_args") or {})
             if isinstance(data, list):
                 data = data[0] if data else 0
             count = data.get(c.get("result_key", "count")) if isinstance(data, dict) else data
@@ -160,11 +263,27 @@ class OccupancyFeed(Feed):
         return pct, {"count": count, "capacity": self.capacity}
 
 
+def resolve_live_config(cfg):
+    """live.venue (e.g. "sydney_01") fills in timezone, weather location and the Supabase venue code
+    from cfg["venues"]; anything set explicitly in live.* wins."""
+    live = {**cfg.get("live", {})}
+    live["weather"] = {**live.get("weather", {})}
+    live["occupancy"] = {**live.get("occupancy", {})}
+    venue = (cfg.get("venues") or {}).get(live.get("venue") or "")
+    if venue:
+        live["timezone"] = live.get("timezone") or venue.get("timezone")
+        if live["weather"].get("lat") is None:
+            live["weather"]["lat"], live["weather"]["lon"] = venue.get("lat"), venue.get("lon")
+        live["occupancy"]["location_code"] = live["occupancy"].get("location_code") or live["venue"]
+        live["venue_name"] = venue.get("name")
+    return live
+
+
 class Live:
     """Holds the feeds plus staff overrides, and works out the effective live inputs."""
 
     def __init__(self, cfg):
-        self.cfg = cfg.get("live", {})
+        self.cfg = resolve_live_config(cfg)
         self.weather = WeatherFeed(self.cfg.get("weather", {}))
         self.occupancy = OccupancyFeed(self.cfg.get("occupancy", {}), self.cfg.get("capacity"))
         self.overrides = {}  # key -> (value, expires_at)
@@ -222,4 +341,6 @@ class Live:
             "occupancy": self.occupancy.status(),
             "overrides": {k: int((exp - now) / 60) + 1 for k, (v, exp) in self.overrides.items() if exp > now},
             "timezone": self.cfg.get("timezone"),
+            "venue": self.cfg.get("venue"),
+            "venue_name": self.cfg.get("venue_name"),
         }

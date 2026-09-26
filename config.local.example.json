@@ -1,0 +1,10 @@
+{
+  "live": {
+    "venue": "sydney_01",
+    "occupancy": {
+      "key": "<O3 app's public anon/publishable key>",
+      "email": "<O3 app account for the DJ>",
+      "password": "<that account's password>"
+    }
+  }
+}
