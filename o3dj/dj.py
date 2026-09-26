@@ -93,6 +93,8 @@ class DJ:
         self.fading = False
         self.fade_skips = cfg.get("skip_fade", True)
 
+        self.room_offsets = self.store.data.setdefault("room_offsets", {})  # room name -> volume vs the main setting
+        self._restore_main()
         self.base_url = self._base_url()
         self.event("DJ ready" + ("" if player.live else " (mock speakers)"))
 
@@ -100,6 +102,17 @@ class DJ:
     def event(self, msg):
         self.events.appendleft({"t": datetime.now().strftime("%H:%M"), "msg": msg})
         log.info(msg)
+
+    def _restore_main(self):
+        """Carry on with the main room chosen on the controller (it may not be the one in config.json)."""
+        ip = self.store.data.get("main_room")
+        if not ip or ip == self.player.anchor_ip:
+            return
+        try:
+            if ip in {s["ip"] for s in self.player.speakers()}:
+                self.player.set_anchor(ip)
+        except Exception:
+            log.exception("couldn't restore main room %s", ip)
 
     def _base_url(self):
         host = self.player.anchor_ip if self.player.live else "127.0.0.1"
@@ -632,34 +645,91 @@ class DJ:
             time.sleep(5)
 
     # -- speakers ---------------------------------------------------------------
-    def speaker_action(self, action, ip=None):
+    def speaker_action(self, action, ip=None, value=None):
         with self.lock:
             p = self.player
+            rooms = {s["ip"]: s for s in p.speakers()}
+            if ip is not None and ip not in rooms:
+                raise ValueError("unknown speaker - press scan")
             if action == "party":
                 p.party()
                 self.event("party mode: all rooms joined")
             elif action == "join":
                 p.join(ip)
             elif action == "leave":
-                p.leave(ip)
-            elif action == "anchor":
-                p.set_anchor(ip)
-                self.running = False
-                self.save()
-                self.event("switched main room - press play to start")
+                if rooms[ip]["coordinator"]:
+                    self._main_off(rooms, ip)
+                else:
+                    p.leave(ip)
+            elif action in ("main", "anchor"):
+                self._make_main(rooms, ip)
+            elif action == "offset":
+                self._set_room_offset(rooms[ip]["name"], value)
+            elif action == "mute":
+                p.set_mute(ip, bool(value))
+                self.event(f"{rooms[ip]['name']} {'muted' if value else 'unmuted'}")
             elif action == "discover":
                 p.discover()
+            else:
+                raise ValueError(f"unknown action {action!r}")
             self.speakers = p.speakers()
             if self.running:
                 self._apply_volume(max_step=100)
+            else:
+                self.volumes = p.volumes()
+
+    def _make_main(self, rooms, ip):
+        if rooms[ip]["coordinator"]:
+            return
+        if not rooms[ip]["in_group"]:
+            self.player.join(ip)
+        self.player.make_main(ip, keep_old=True)
+        self._main_changed(ip)
+        self.event(f"{rooms[ip]['name']} is now the main room")
+
+    def _main_off(self, rooms, ip):
+        """Switching off the main room hands the music to another room in the group, which becomes main."""
+        others = [s for s in rooms.values() if s["in_group"] and s["ip"] != ip]
+        if not others:
+            # the only room playing: switching it off means silence
+            if self.running:
+                self.pause()
+            else:
+                self.player.pause()
+            self.event(f"{rooms[ip]['name']} off - music paused")
+            return
+        home = self.cfg.get("coordinator_ip")
+        new = next((s for s in others if s["ip"] == home), others[0])
+        self.player.make_main(new["ip"], keep_old=False)
+        self._main_changed(new["ip"])
+        self.event(f"{rooms[ip]['name']} off - {new['name']} is now the main room")
+
+    def _main_changed(self, ip):
+        self.store.data["main_room"] = ip
+        self.save()
+        self.base_url = self._base_url()
+
+    def room_offset(self, name):
+        """How far a room sits above/below the main volume: set on the controller, else config.json."""
+        if name in self.room_offsets:
+            return self.room_offsets[name]
+        return self.cfg.get("room_volume_offsets", {}).get(name, 0)
+
+    def room_offset_steps(self):
+        return self.cfg.get("room_offset_steps", [-10, -5, 0, 5, 10])
+
+    def _set_room_offset(self, name, offset):
+        """The room knob has detents (config room_offset_steps); snap to the nearest one."""
+        offset = float(offset)
+        self.room_offsets[name] = min(self.room_offset_steps(), key=lambda s: (abs(s - offset), abs(s)))
+        self.save()
 
     def _apply_volume(self, max_step=2):
         target = self.targets["volume"]
         names = {s["ip"]: s["name"] for s in self.speakers}
-        offsets = self.cfg.get("room_volume_offsets", {})
         vols = self.player.volumes()
         for ip, cur in vols.items():
-            want = target + offsets.get(names.get(ip, ""), 0)
+            want = target + self.room_offset(names.get(ip, ""))
             want = max(self.cfg["min_volume"], min(self.cfg["max_volume"], want))
             if cur != want:
                 step = max(-max_step, min(max_step, want - cur))
@@ -903,6 +973,7 @@ class DJ:
                 "genres": per_genre,
                 "speakers": self.speakers,
                 "volumes": self.volumes,
+                "room_offsets": {sp["ip"]: self.room_offset(sp["name"]) for sp in self.speakers},
                 "health": {
                     "source_online": self.online,
                     "speaker_error": self.player.error,
@@ -913,5 +984,6 @@ class DJ:
                           "analysed": self.meta.count(), "tracks": len(lib)},
                 "events": list(self.events),
                 "calibration": self._calibration_snapshot(),
-                "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"]},
+                "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"],
+                           "room_offset_steps": self.room_offset_steps()},
             }
