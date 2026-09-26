@@ -65,13 +65,20 @@ class Cache:
             os.utime(p)
 
     def usage_mb(self):
-        return sum((self.dir / n).stat().st_size for n in self.names if (self.dir / n).exists()) / 1e6
+        # names is a set the prefetch thread adds to while the web thread reads it; iterate a snapshot
+        total = 0
+        for n in list(self.names):
+            try:
+                total += (self.dir / n).stat().st_size
+            except FileNotFoundError:
+                pass
+        return total / 1e6
 
     def evict(self, protect):
         limit = self.cfg["max_mb"]
         if self.usage_mb() <= limit:
             return
-        files = sorted((self.dir / n for n in self.names if n not in protect),
+        files = sorted((self.dir / n for n in list(self.names) if n not in protect and (self.dir / n).exists()),
                        key=lambda p: p.stat().st_mtime)
         for p in files:
             if self.usage_mb() <= limit * 0.9:
