@@ -98,7 +98,10 @@ def create_app(dj):
     @app.post("/api/speakers")
     def speakers():
         body = request.get_json(force=True)
-        dj.speaker_action(body.get("action"), body.get("ip"))
+        try:
+            dj.speaker_action(body.get("action"), body.get("ip"), body.get("value"))
+        except Exception as e:  # bad input, or the speakers refused (e.g. a regrouping didn't take)
+            return jsonify({"error": str(e)[:200]}), 400
         return ok()
 
     @app.post("/api/tracks")

@@ -362,3 +362,96 @@ def test_fade_skip_dips_volume_and_restores_it(dj):
     assert dj.now_id != first
     assert min(seen) < before * 0.3 and seen[-1] == before
     assert dj.player.group_volume() == before
+
+
+# -- rooms: main room, switching off, per-room volume -------------------------------
+
+def ip_of(dj, name):
+    return next(s["ip"] for s in dj.player.speakers() if s["name"] == name)
+
+
+def test_make_main_keeps_music_playing_and_survives_restart(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    a = started(make_dj(tmp_path, player))
+    entrance = ip_of(a, "Mock Cafe Entrance")
+    now, queue = a.now_id, player.queue_uris()
+    a.speaker_action("main", entrance)  # not in the group yet: joins, then leads
+    main = [s for s in a.speakers if s["coordinator"]]
+    assert [s["ip"] for s in main] == [entrance]
+    assert {s["name"] for s in a.speakers if s["in_group"]} == {"Mock Cafe Entrance", "Mock Office"}
+    a.tick(1)
+    assert a.running and a.status["state"] == "PLAYING" and a.now_id == now and player.queue_uris() == queue
+
+    player.anchor_ip = "10.0.0.11"  # a restart starts from config's main room...
+    b = make_dj(tmp_path, player)
+    assert player.anchor_ip == entrance  # ...and goes back to the one chosen on the controller
+
+
+def test_switching_off_main_room_hands_over_and_music_carries_on(dj):
+    started(dj)
+    office, storage = ip_of(dj, "Mock Office"), ip_of(dj, "Mock Storage")
+    dj.speaker_action("join", storage)
+    now = dj.now_id
+    dj.speaker_action("leave", office)
+    rooms = {s["name"]: s for s in dj.speakers}
+    assert rooms["Mock Storage"]["coordinator"] and not rooms["Mock Office"]["in_group"]
+    dj.tick(1)
+    assert dj.status["state"] == "PLAYING" and dj.now_id == now and not dj.paused
+
+
+def test_switching_off_main_room_prefers_the_configured_home_room(tmp_path):
+    d = started(make_dj(tmp_path))
+    for n in ("Mock 2nd Floor", "Mock Storage"):
+        d.speaker_action("join", ip_of(d, n))
+    d.cfg = dict(d.cfg, coordinator_ip=ip_of(d, "Mock Storage"))
+    d.speaker_action("leave", ip_of(d, "Mock Office"))
+    assert d.player.anchor_ip == ip_of(d, "Mock Storage")  # not 2nd Floor, though it sorts first
+
+
+def test_switching_off_the_only_room_pauses(dj):
+    started(dj)
+    dj.speaker_action("leave", dj.player.anchor_ip)
+    assert dj.paused and dj.player.status()["state"] == "PAUSED_PLAYBACK"
+    assert [s["in_group"] for s in dj.speakers if s["coordinator"]] == [True]
+
+
+def test_room_offset_is_relative_to_main_volume_snapped_and_saved(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    d = started(make_dj(tmp_path, player))
+    storage = ip_of(d, "Mock Storage")
+    d.speaker_action("join", storage)
+    d.speaker_action("offset", storage, -6)  # snaps to the nearest knob detent
+    assert d.room_offset("Mock Storage") == -5
+    target = d.targets["volume"]
+    assert player.volumes()[storage] == max(d.cfg["min_volume"], target - 5)
+    assert player.volumes()[player.anchor_ip] == target
+    d.speaker_action("offset", storage, 99)
+    assert d.room_offset("Mock Storage") == 10
+    assert d.snapshot()["room_offsets"][storage] == 10
+    assert d.snapshot()["limits"]["room_offset_steps"] == [-10, -5, 0, 5, 10]
+    assert make_dj(tmp_path, player).room_offset("Mock Storage") == 10
+
+
+def test_room_offset_from_controller_overrides_config(tmp_path):
+    d = make_dj(tmp_path)
+    d.cfg = dict(d.cfg, room_volume_offsets={"Mock Office": 4})
+    assert d.room_offset("Mock Office") == 4
+    d.speaker_action("offset", d.player.anchor_ip, -5)
+    assert d.room_offset("Mock Office") == -5
+
+
+def test_mute_keeps_room_in_group_and_leaves_volume_alone(dj):
+    started(dj)
+    ip = dj.player.anchor_ip
+    dj.speaker_action("mute", ip, True)
+    room = next(s for s in dj.speakers if s["ip"] == ip)
+    assert room["muted"] and room["in_group"] and room["coordinator"]
+    dj.tick(1)
+    assert dj.status["state"] == "PLAYING" and dj.player.volumes()[ip] == dj.targets["volume"]  # mute isn't volume 0
+    dj.speaker_action("mute", ip, False)
+    assert not next(s for s in dj.speakers if s["ip"] == ip)["muted"]
+
+
+def test_unknown_speaker_is_rejected(dj):
+    with pytest.raises(ValueError):
+        dj.speaker_action("main", "10.9.9.9")

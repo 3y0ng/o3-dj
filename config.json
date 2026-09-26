@@ -5,6 +5,7 @@
   "min_volume": 8,
   "max_volume": 60,
   "room_volume_offsets": {},
+  "room_offset_steps": [-10, -5, 0, 5, 10],
   "crossfade": true,
   "queue_ahead": 2,
 

@@ -60,13 +60,67 @@ class SonosPlayer:
             members = {m.ip_address for m in ctrl.group.members}
             out = []
             for ip, z in sorted(self.zones.items(), key=lambda kv: kv[1].player_name):
+                try:
+                    muted = bool(z.mute)
+                except Exception:
+                    muted = False
                 out.append({"ip": ip, "name": z.player_name, "in_group": ip in members,
-                            "coordinator": ip == ctrl.ip_address, "anchor": ip == self.anchor_ip})
+                            "coordinator": ip == ctrl.ip_address, "anchor": ip == self.anchor_ip, "muted": muted})
             return out
+
+    def set_mute(self, ip, on):
+        """Per-room mute: the room stays in the group, so unmuting is instant."""
+        with self.lock:
+            self.zones[ip].mute = bool(on)
 
     def set_anchor(self, ip):
         with self.lock:
             self.anchor_ip = ip
+
+    def _wait(self, ip, cond, secs=8):
+        """Poll group state until cond() holds (Sonos applies grouping changes asynchronously)."""
+        end = time.monotonic() + secs
+        while True:
+            self.zones[ip].zone_group_state.clear_cache()
+            try:
+                if cond():
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() > end:
+                return False
+            time.sleep(0.4)
+
+    def make_main(self, ip, keep_old=True):
+        """Hand group leadership (the queue and what's playing) to `ip`, a room in the group; playback carries on.
+        keep_old=False takes the old leader out of the group in the same step."""
+        with self.lock:
+            ctrl = self.ctrl
+            if ip == ctrl.ip_address:
+                self.anchor_ip = ip
+                return
+            new = self.zones[ip]
+            if not self._wait(ip, lambda: ip in {m.ip_address for m in ctrl.group.members}):
+                raise RuntimeError(f"{new.player_name} didn't join the group")
+            ctrl.avTransport.DelegateGroupCoordinationTo([
+                ("InstanceID", 0), ("NewCoordinator", new.uid), ("RejoinGroup", "1" if keep_old else "0")])
+            if not self._wait(ip, lambda: new.group.coordinator.ip_address == ip):
+                raise RuntimeError(f"{new.player_name} didn't take over as main room")
+            self.anchor_ip = ip
+            if not keep_old:
+                self._silence_alone(ctrl)
+
+    def _silence_alone(self, zone):
+        """Make sure a room that left the group isn't still playing on its own (never touches the group)."""
+        try:
+            if zone.ip_address in {m.ip_address for m in self.ctrl.group.members}:
+                zone.unjoin()
+            self._wait(zone.ip_address, lambda: len(zone.group.members) == 1)
+            if len(zone.group.members) == 1 and \
+                    zone.get_current_transport_info()["current_transport_state"] == "PLAYING":
+                zone.stop()
+        except Exception as e:
+            log.warning("couldn't silence %s: %s", zone.player_name, e)
 
     def party(self):
         with self.lock:
@@ -208,7 +262,7 @@ class MockPlayer:
     def __init__(self, track_seconds=45):
         self.track_seconds = track_seconds
         names = ["Mock Cafe Entrance", "Mock Office", "Mock Mezzanine", "Mock 2nd Floor", "Mock Storage"]
-        self.rooms = {f"10.0.0.{i + 10}": {"name": n, "volume": 25} for i, n in enumerate(names)}
+        self.rooms = {f"10.0.0.{i + 10}": {"name": n, "volume": 25, "mute": False} for i, n in enumerate(names)}
         self.anchor_ip = "10.0.0.11"
         self.group = {self.anchor_ip}
         self.queue, self.index, self.state = [], -1, "STOPPED"
@@ -224,12 +278,23 @@ class MockPlayer:
 
     def speakers(self):
         return [{"ip": ip, "name": r["name"], "in_group": ip in self.group,
-                 "coordinator": ip == self.anchor_ip, "anchor": ip == self.anchor_ip}
+                 "coordinator": ip == self.anchor_ip, "anchor": ip == self.anchor_ip, "muted": r["mute"]}
                 for ip, r in sorted(self.rooms.items(), key=lambda kv: kv[1]["name"])]
+
+    def set_mute(self, ip, on):
+        self.rooms[ip]["mute"] = bool(on)
 
     def set_anchor(self, ip):
         self.anchor_ip = ip
         self.group.add(ip)
+
+    def make_main(self, ip, keep_old=True):
+        """Like Sonos's group delegation: the queue and playback move to `ip`, which must be in the group."""
+        if ip not in self.group:
+            raise RuntimeError(f"{self.rooms[ip]['name']} didn't join the group")
+        old, self.anchor_ip = self.anchor_ip, ip
+        if not keep_old:
+            self.group.discard(old)
 
     def party(self):
         self.group = set(self.rooms)

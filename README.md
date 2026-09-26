@@ -37,7 +37,10 @@ Knob trims (volume/energy) reset automatically when the real clock moves into th
 | **weather** keys | cloudy leans jazzier; rain leans jazzier, softer and calmer, and brings jazz in even if not selected. |
 | **play / skip** | play starts the DJ. **This replaces the main room's Sonos queue.** |
 | **love it / not this** | votes. "not this" skips; 3 net downvotes remove a track from rotation. You can also vote on "up next". |
-| **rooms** | tap a room to add it to / remove it from the synced group. **party mode** joins every speaker. Both ask first, because a room joining the group stops whatever it was playing. |
+| **rooms** | tap a room to switch it on (join the synced group) or off. Switching off the **main** room hands the music to another room in the group, which becomes main; if it's the only room playing, the music pauses. |
+| **main** (on each room) | makes that room the main room: it leads the group and holds the queue. The music carries on; a room that's off joins first. Remembered across restarts. |
+| **room knob** (small blue, on each room) | that room's volume relative to the main volume: five detents from 9 o'clock to 3 o'clock (−10, −5, 0, +5, +10; `room_offset_steps` in `config.json`). Drag, scroll or arrow keys; double-click resets. Saved per room; starts from `room_volume_offsets`. |
+| **mute** (slide switch, on each room) | mutes that room on the Sonos. It stays in the group, so unmuting is instant; a mute set in the Sonos app shows here too. |
 
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
@@ -89,7 +92,7 @@ and capacity from the venue's red threshold. Details: [docs/live-mode-plan.md](d
 - **daypart_curve**: energy + volume by hour (a 24h cafe: calm late night, peak in the afternoon, winding down in the evening).
 - **weather**: energy/volume nudges and genre boosts.
 - **occupancy**: threshold and max boost.
-- **min_volume / max_volume**: hard safety limits. **room_volume_offsets**: e.g. `{"Cafe Entrance": 4}`.
+- **min_volume / max_volume**: hard safety limits. **room_volume_offsets**: starting per-room levels, e.g. `{"Cafe Entrance": 4}`; the knob on each room overrides them.
 
 Picking: choose a genre by weight, then a track whose **energy** is close to the target,
 weighted by votes, avoiding the last 60 plays. Energy comes from analysing
@@ -142,7 +145,7 @@ data/               runtime state, cache, votes (gitignored)
 
 API: `GET /api/state`, `POST /api/control {action: play|pause|skip|up|down, id?}`,
 `POST /api/inputs {genres, weather, occupancy, occupancy_enabled, hour_override, auto, manual_volume, volume_trim, energy_trim}`,
-`POST /api/speakers {action: party|join|leave|anchor|discover, ip?}`, `POST /api/tracks {url, title, genre}`.
+`POST /api/speakers {action: party|join|leave|main|offset|mute|discover, ip?, value?}`, `POST /api/tracks {url, title, genre}`.
 These are the hooks for live data later: a weather or occupancy feed only needs to POST to `/api/inputs`.
 
 ## Not yet

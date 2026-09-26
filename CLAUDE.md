@@ -64,6 +64,10 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - Always queue tracks with this laptop's `/media/cache/<name>` URL (not the remote URL): cached files start instantly and
   survive internet drops; `server.py` passes uncached ones through from the source.
 - Queue item IDs `Q:0/n` are positions (SoCo's `remove_from_queue` is 0-based).
+- Changing the main room uses `DelegateGroupCoordinationTo` (`SonosPlayer.make_main`): the queue and playback move with it.
+  SoCo caches group state for 5 s, so it polls with `clear_cache()` until the new leader shows up before using `ctrl`.
+  Per-room volume offsets (controller knob, snapped to `room_offset_steps`) live in `state.json` `room_offsets` by room name;
+  the chosen main room in `main_room`. Per-room mute is the Sonos mute, read back in `speakers()` (not stored by the DJ).
 
 ## Conventions
 

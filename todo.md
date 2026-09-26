@@ -23,6 +23,11 @@ Fixed 25 Sep 2026 (tests in `tests/test_dj_mock.py`; the mock now reproduces Son
   (backup: `data/state.backup-2026-09-25.json`): 11 real plays kept, the reset "replays" removed.
 - [x] **Trims never expired.** Knob trims reset when the real clock enters a new daypart (`reset_trims_on_daypart`).
 - [x] **Queued songs ignored the clock.** Daypart changes now trigger a re-pick.
+- [x] **`/api/state` crashed with "Set changed size during iteration"** (27 Sep 2026, Python 3.14): the prefetch
+  thread added to `Cache.names` while `usage_mb()` summed it. It now iterates a snapshot and tolerates evicted files.
+- [x] **Rooms** (27 Sep 2026): pick the main room from the controller; switching the main room off hands over to
+  another room in the group; per-room volume knob (5 detents) relative to the main volume; per-room mute switch.
+  Not yet tried on the real speakers.
 - [x] Analysis failures were permanent; they now retry after 24 h.
 - [x] LAN IP change broke queued cached tracks; the health loop now notices and re-queues.
 - [x] Downvoting one "up next" track re-picked both; it now swaps just that one (or skips it on arrival if it's too late to edit).

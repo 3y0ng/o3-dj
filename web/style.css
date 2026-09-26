@@ -319,20 +319,117 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
   box-shadow: inset 0 2px 5px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.6);
   flex-wrap: wrap;
 }
-.room {
-  flex: 1 1 120px; min-height: 84px; border: 0; border-radius: 3px 3px 8px 8px; cursor: pointer; text-align: left;
-  display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 10px 11px;
+/* Each room is a column in the keyboard bed: a key cap (tap = on/off) over a recessed metal control plate. */
+.room { flex: 1 1 150px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.room-key {
+  position: relative; flex: 1; min-height: 66px; border: 0; border-radius: 3px 3px 8px 8px; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 10px 11px; font: inherit; color: inherit;
   background: linear-gradient(180deg, #d9dad7 0%, #f6f6f3 30%, #eeeeea 100%);
   box-shadow: inset 0 -5px 0 #cfd0cc, inset 0 1px 0 #fff;
   transition: transform .06s;
 }
-.room:active { transform: translateY(2px); }
-.room b { font-weight: 500; font-size: 12.5px; line-height: 1.2; }
-.room small { font-family: var(--mono); font-size: 10px; color: var(--ink-soft); }
-.room .led { margin-bottom: auto; }
-.room.main { background: linear-gradient(180deg, #d9dad7 0%, #fff7f2 30%, #f7ece5 100%); }
-.room.empty { cursor: default; color: #999; background: #3a3c3f; box-shadow: none; }
-.room.empty b { color: #9aa0a6; font-weight: 400; }
+.room-key:active { transform: translateY(2px); }
+.room-key:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.room-key .led { position: absolute; top: 9px; right: 9px; width: 6px; height: 6px; }
+.room-key b { font-weight: 500; font-size: 12.5px; line-height: 1.2; padding-right: 10px; }
+.room-key small { font-family: var(--mono); font-size: 10px; color: var(--ink-soft); }
+.room.off .room-key b { color: var(--ink-soft); }
+.room.main .room-key { background: linear-gradient(180deg, #d9dad7 0%, #fff7f2 30%, #f7ece5 100%); }
+
+.room-plate {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px;
+  padding: 6px 8px 7px 5px; border-radius: 4px 4px 8px 8px;
+  background: linear-gradient(180deg, #c3c7ca, #cdd0d2);
+  box-shadow: inset 0 2px 3px rgba(0,0,0,.2), inset 0 -1px 0 rgba(255,255,255,.35);
+}
+
+/* level knob: a small version of the main volume knob, five printed detents from 9 to 3 o'clock */
+.rknob {
+  position: relative; width: 48px; height: 48px; display: grid; place-items: center;
+  cursor: ns-resize; touch-action: none; outline: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.rknob-scale { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.rknob-scale .tick { stroke: #8e9296; stroke-width: 1.6; stroke-linecap: round; transition: stroke .15s; }
+.rknob-scale .tick.on { stroke: var(--orange); filter: drop-shadow(0 0 2px rgba(255,107,44,.7)); }
+.rknob-scale text { font-family: var(--mono); font-size: 8px; fill: var(--ink-soft); }
+.rknob .knob {
+  width: 30px; height: 30px; border-radius: 50%; position: relative; display: grid; place-items: center;
+  background: repeating-conic-gradient(from 0deg, #2c2e31 0 6deg, #45484c 6deg 12deg);
+  box-shadow: 0 3px 5px -1px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.6), inset 0 0 0 1px rgba(0,0,0,.5);
+}
+.rknob .knob::before { /* well */
+  content: ""; position: absolute; inset: -3px; border-radius: 50%; z-index: -1;
+  background: linear-gradient(180deg, #b0b4b7, #e6e8e9); box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
+}
+.rknob .cap {
+  --c: var(--blue); --hi: #8dbbff; --lo: #1d5fc7;
+  width: 21px; height: 21px; border-radius: 50%; position: relative;
+  background: radial-gradient(circle at 38% 30%, var(--hi) 0%, var(--c) 55%, var(--lo) 100%);
+  box-shadow: inset 0 -1.5px 2px rgba(0,0,0,.25), inset 0 1px 1px rgba(255,255,255,.5), 0 1px 2px rgba(0,0,0,.4);
+  transform: rotate(var(--rot, 0deg)); transition: transform .12s cubic-bezier(.3, 1.5, .5, 1);
+}
+.rknob .cap::after { content: ""; position: absolute; left: 50%; top: 2px; width: 2px; height: 7px; margin-left: -1px; border-radius: 1px; background: rgba(0,0,0,.6); }
+.rknob:focus-visible .knob { box-shadow: 0 0 0 3px rgba(61,139,255,.55), 0 3px 5px -1px rgba(0,0,0,.45); }
+.room.off .rknob .cap, .room.muted .rknob .cap { filter: saturate(.25) brightness(.92); }
+
+/* middle column: a tiny LCD for the level, and a latching "main" key under it */
+.plate-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lcd {
+  position: relative; overflow: hidden; height: 20px; padding: 0 6px; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 90% at 50% 40%, #0e0f12 0%, var(--scr) 70%);
+  box-shadow: 0 0 0 2px #2b2d30, 0 1px 0 2px rgba(255,255,255,.55), inset 0 0 8px rgba(0,0,0,.9);
+  font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--blue);
+  text-shadow: 0 0 4px rgba(61,139,255,.55); white-space: nowrap;
+}
+.lcd::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(160deg, rgba(255,255,255,.07) 0%, transparent 45%); }
+.lcd.zero { color: var(--dim); text-shadow: none; }
+.room.off .lcd, .room.muted .lcd { color: var(--dim); text-shadow: none; }
+.room-main {
+  position: relative; height: 20px; border: 0; border-radius: 4px; cursor: pointer; padding: 0 6px 0 14px;
+  font-family: var(--label); font-size: 10px; letter-spacing: .04em; color: var(--ink-soft);
+  background: linear-gradient(180deg, #fafaf8, #dcdcd9);
+  box-shadow: 0 2px 0 #a4a7a9, 0 3px 3px -1px rgba(0,0,0,.25), inset 0 1px 0 #fff;
+  transition: transform .06s, box-shadow .06s;
+}
+.room-main .led { position: absolute; left: 6px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; }
+.room-main:active { transform: translateY(1px); box-shadow: 0 1px 0 #a4a7a9, inset 0 1px 0 #fff; }
+.room-main.is-main { transform: translateY(2px); box-shadow: 0 0 0 #a4a7a9, inset 0 1px 2px rgba(0,0,0,.18); color: var(--ink); cursor: default; }
+.room-main:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* mute: a small version of the demo/live slide switch, label printed underneath */
+.plate-mute { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.mslide {
+  position: relative; width: 36px; height: 18px; border: 0; padding: 0; border-radius: 9px; cursor: pointer; flex: none;
+  background: linear-gradient(180deg, #232427, #3a3c40);
+  box-shadow: inset 0 1.5px 3px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.75);
+  transition: background .3s;
+}
+.mslide::before { /* slot glow when muted */
+  content: ""; position: absolute; inset: 3px 5px; border-radius: 6px; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(60% 120% at 30% 50%, rgba(255,59,59,.6), transparent 70%);
+}
+.mslide.on { background: linear-gradient(180deg, #341a1a, #4a2626); }
+.mslide.on::before { opacity: 1; }
+.mslide .thumb {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 14px; border-radius: 7px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.14) 0 1px, transparent 1px 3px) center / 7px 6px no-repeat,
+    linear-gradient(180deg, #fdfdfb 0%, #e2e3e0 55%, #c7c9c6 100%);
+  box-shadow: 0 1px 3px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.18), inset 0 1px 0 #fff;
+  transition: left .28s cubic-bezier(.3, 1.4, .5, 1);
+}
+.mslide.on .thumb { left: 16px; }
+.mslide:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.mlab { display: flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: .06em; color: var(--ink-soft); cursor: pointer; user-select: none; }
+.mlab .led { width: 5px; height: 5px; }
+.room.muted .mlab { color: var(--ink); }
+
+.room.empty {
+  flex: 1; min-height: 84px; padding: 10px 11px; justify-content: flex-end; border-radius: 3px 3px 8px 8px;
+  background: #3a3c3f; color: #999;
+}
+.room.empty b { color: #9aa0a6; font-weight: 400; font-size: 12.5px; }
 
 /* ── strip below the device ──────────────────────────────── */
 .strip { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; margin-top: 26px; }
@@ -413,6 +510,13 @@ form .row { display: flex; gap: 7px; }
   .key { height: 64px; }
   .strip { grid-template-columns: 1fr; }
   .room { flex-basis: 45%; }
+  .rknob { width: 54px; height: 54px; }
+  .rknob .knob { width: 34px; height: 34px; } .rknob .cap { width: 24px; height: 24px; }
+  .lcd, .room-main { height: 26px; }
+  .mslide { width: 44px; height: 24px; border-radius: 12px; }
+  .mslide .thumb { width: 22px; height: 20px; border-radius: 10px; }
+  .mslide.on .thumb { left: 20px; }
+  .room-main { padding: 6px 10px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ticker span, .device { animation: none; }

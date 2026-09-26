@@ -456,29 +456,199 @@ function renderGenreKeys(s) {
   });
 }
 
+const pendingOffset = {};  // ip -> offset set on the knob but not yet confirmed by the server
+const offsetTimers = {};
+const DRAG_PX = 18;        // pointer travel per detent
+
+function fmtOffset(o) {
+  return o > 0 ? `+${o}` : o < 0 ? `−${-o}` : "±0";
+}
+
+function roomSteps() {
+  return (S && S.limits && S.limits.room_offset_steps) || [-10, -5, 0, 5, 10];
+}
+
+// Detents run from 9 o'clock (-90°) to 3 o'clock (+90°); in-between values (from config.json) sit between them.
+function offsetAngle(o, steps) {
+  const n = steps.length - 1, at = (i) => -90 + (180 * i) / n;
+  if (o <= steps[0]) return at(0);
+  for (let i = 1; i <= n; i++) {
+    if (o <= steps[i]) return at(i - 1) + ((o - steps[i - 1]) / (steps[i] - steps[i - 1])) * (at(i) - at(i - 1));
+  }
+  return at(n);
+}
+
+function nearestStep(o, steps) {
+  return steps.reduce((best, v, i) => (Math.abs(v - o) < Math.abs(steps[best] - o) ? i : best), 0);
+}
+
+function knobScale(steps) {
+  const n = steps.length - 1;
+  const ticks = steps.map((_, i) => {
+    const a = (-180 + (180 * i) / n) * Math.PI / 180;  // svg 0° is 3 o'clock; first detent at 9 o'clock
+    const p = (r) => `${(28 + r * Math.cos(a)).toFixed(2)} ${(28 + r * Math.sin(a)).toFixed(2)}`;
+    return `<path class="tick" data-i="${i}" d="M${p(21.5)}L${p(26)}"/>`;
+  }).join("");
+  return `<svg class="rknob-scale" viewBox="0 0 56 56" aria-hidden="true">${ticks}` +
+    `<text x="3" y="41">−</text><text x="53" y="41" text-anchor="end">+</text></svg>`;
+}
+
+function roomCard(sp) {
+  const steps = roomSteps();
+  return `<div class="room" data-ip="${sp.ip}">
+      <button class="room-key" data-act="toggle"><span class="led"></span><b>${esc(sp.name)}</b><small></small></button>
+      <div class="room-plate">
+        <div class="rknob" tabindex="0" role="slider" aria-label="${esc(sp.name)} level relative to the main volume"
+          aria-valuemin="${steps[0]}" aria-valuemax="${steps[steps.length - 1]}"
+          title="level relative to the main volume: drag, scroll or arrow keys; double-click resets">
+          ${knobScale(steps)}<div class="knob"><div class="cap"></div></div>
+        </div>
+        <div class="plate-mid">
+          <div class="lcd" aria-hidden="true"></div>
+          <button class="room-main" data-act="main"><span class="led"></span>main</button>
+        </div>
+        <div class="plate-mute">
+          <button class="mslide" data-act="mute" role="switch" aria-label="mute ${esc(sp.name)}"><span class="thumb"></span></button>
+          <span class="mlab" data-act="mute"><span class="led"></span>mute</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function roomAction(sp, what) {
+  const inGroup = S.speakers.filter((x) => x.in_group);
+  const send = (action, value) => act("/api/speakers", value === undefined ? { action, ip: sp.ip } : { action, ip: sp.ip, value });
+  if (what === "mute") return send("mute", !sp.muted);
+  if (what === "main") {
+    if (sp.coordinator) return popup("main", sp.name, "leads the group and holds the queue", "var(--green)");
+    if (!sp.in_group && !confirm(`Make ${sp.name} the main room? It joins the DJ group, and anything it's playing now will stop.`)) return;
+    return send("main");
+  }
+  // toggle on/off
+  if (!sp.in_group) {
+    if (!confirm(`Add ${sp.name} to the DJ group? Anything it's playing now will stop.`)) return;
+    return send("join");
+  }
+  if (sp.coordinator) {
+    const msg = inGroup.length > 1
+      ? `Switch off ${sp.name}? Another room in the group takes over as the main room and the music carries on.`
+      : `${sp.name} is the only room playing. Switching it off pauses the music. Continue?`;
+    if (!confirm(msg)) return;
+  }
+  return send("leave");
+}
+
+function setRoomOffset(ip, value) {
+  const cur = pendingOffset[ip] ?? S.room_offsets?.[ip] ?? 0;
+  if (value === cur) return;
+  pendingOffset[ip] = value;
+  renderRooms(S);
+  const sp = S.speakers.find((x) => x.ip === ip);
+  popup(sp ? sp.name.toLowerCase() : "room", fmtOffset(value), "vs the main volume", "var(--blue)");
+  clearTimeout(offsetTimers[ip]);
+  offsetTimers[ip] = setTimeout(async () => {  // one request once the knob settles
+    try {
+      render(await api("/api/speakers", { action: "offset", ip, value }));
+    } catch (e) {
+      flashFoot(e.message);
+    }
+    if (pendingOffset[ip] === value) delete pendingOffset[ip];
+    renderRooms(S);
+  }, 250);
+}
+
+function initRoomCard(el) {
+  const ip = el.dataset.ip;
+  $$("[data-act]", el).forEach((b) => b.addEventListener("click", () => {
+    const sp = S.speakers.find((x) => x.ip === ip);
+    if (sp) roomAction(sp, b.dataset.act);
+  }));
+  const knob = $(".rknob", el);
+  const step = (d) => {
+    const steps = roomSteps();
+    const cur = pendingOffset[ip] ?? S.room_offsets?.[ip] ?? 0;
+    const i = Math.max(0, Math.min(steps.length - 1, nearestStep(cur, steps) + d));
+    setRoomOffset(ip, steps[i]);
+  };
+  let dragging = false, acc = 0, last = null, moved = 0, lastTap = 0;
+  knob.addEventListener("pointerdown", (e) => {
+    dragging = true; acc = 0; moved = 0; last = [e.clientX, e.clientY];
+    knob.setPointerCapture(e.pointerId); knob.focus({ preventScroll: true });
+  });
+  knob.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - last[0], dy = last[1] - e.clientY;  // right or up turns clockwise
+    last = [e.clientX, e.clientY];
+    acc += Math.abs(dx) > Math.abs(dy) ? dx : dy; moved += Math.abs(dx) + Math.abs(dy);
+    const n = Math.trunc(acc / DRAG_PX);
+    if (n) { acc -= n * DRAG_PX; step(n); }
+  });
+  knob.addEventListener("pointerup", (e) => {
+    dragging = false;
+    if (e.pointerType === "touch" && moved < 6) {  // touch has no dblclick: a double tap resets
+      if (e.timeStamp - lastTap < 350) { setRoomOffset(ip, 0); lastTap = 0; } else lastTap = e.timeStamp;
+    }
+  });
+  knob.addEventListener("pointercancel", () => { dragging = false; });
+  let wheelAcc = 0;
+  knob.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    wheelAcc -= e.deltaY;
+    if (Math.abs(wheelAcc) >= 40) { step(Math.sign(wheelAcc)); wheelAcc = 0; }
+  }, { passive: false });
+  knob.addEventListener("keydown", (e) => {
+    const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+    if (d) { e.preventDefault(); step(d); }
+    if (e.key === "Home" || e.key === "0") { e.preventDefault(); setRoomOffset(ip, 0); }
+  });
+  knob.addEventListener("dblclick", () => setRoomOffset(ip, 0));
+}
+
 function renderRooms(s) {
   const wrap = $("#room-keys");
   if (!s.speakers.length) {
     wrap.innerHTML = `<div class="room empty"><b>no speakers found yet — press scan</b></div>`;
+    wrap.dataset.layout = "";
     return;
   }
-  const sig = JSON.stringify(s.speakers) + JSON.stringify(s.volumes);
-  if (wrap.dataset.sig === sig) return;
-  wrap.dataset.sig = sig;
-  wrap.innerHTML = s.speakers.map((sp) => {
+  const steps = roomSteps();
+  const layout = JSON.stringify([s.speakers.map((sp) => [sp.ip, sp.name]), steps]);
+  if (wrap.dataset.layout !== layout) {  // rebuild only when rooms change, so a knob mid-turn isn't replaced
+    wrap.dataset.layout = layout;
+    wrap.innerHTML = s.speakers.map(roomCard).join("");
+    $$(".room", wrap).forEach(initRoomCard);
+  }
+  s.speakers.forEach((sp) => {
+    const el = $(`.room[data-ip="${sp.ip}"]`, wrap);
+    if (!el) return;
     const vol = s.volumes?.[sp.ip];
-    return `<button class="room${sp.coordinator ? " main" : ""}" data-ip="${sp.ip}" title="${sp.coordinator ? "main room (group leader)" : sp.in_group ? "tap to remove from the group" : "tap to join the group"}">
-      <span class="led${sp.in_group ? " on" : ""}${sp.coordinator ? " green" : ""}"></span>
-      <b>${esc(sp.name)}</b>
-      <small>${sp.coordinator ? "main" : sp.in_group ? "synced" : "off group"}${vol != null && sp.in_group ? " · vol " + vol : ""}</small>
-    </button>`;
-  }).join("");
-  $$(".room", wrap).forEach((b) => b.addEventListener("click", () => {
-    const sp = S.speakers.find((x) => x.ip === b.dataset.ip);
-    if (!sp || sp.coordinator) return;
-    if (!sp.in_group && !confirm(`Add ${sp.name} to the DJ group? Anything it's playing now will stop.`)) return;
-    act("/api/speakers", { action: sp.in_group ? "leave" : "join", ip: sp.ip });
-  }));
+    const off = pendingOffset[sp.ip] ?? s.room_offsets?.[sp.ip] ?? 0;
+    el.classList.toggle("main", sp.coordinator);
+    el.classList.toggle("off", !sp.in_group);
+    el.classList.toggle("muted", !!sp.muted);
+    const key = $(".room-key", el);
+    $(".led", key).className = "led" + (sp.in_group ? " on" : "") + (sp.coordinator ? " green" : "");
+    key.title = sp.in_group ? "tap to switch this room off" : "tap to add this room";
+    $("small", key).textContent = (sp.muted ? "muted" : sp.coordinator ? "main" : sp.in_group ? "synced" : "off")
+      + (vol != null && sp.in_group ? " · vol " + vol : "");
+    const mainKey = $(".room-main", el);
+    mainKey.classList.toggle("is-main", sp.coordinator);
+    mainKey.title = sp.coordinator ? "main room: leads the group and holds the queue" : "make this the main room";
+    $(".led", mainKey).className = "led" + (sp.coordinator ? " on green" : "");
+    const knob = $(".rknob", el);
+    $(".cap", knob).style.setProperty("--rot", offsetAngle(off, steps) + "deg");
+    const ni = nearestStep(off, steps);
+    $$(".tick", knob).forEach((t) => t.classList.toggle("on", +t.dataset.i === ni));
+    knob.setAttribute("aria-valuenow", off);
+    knob.setAttribute("aria-valuetext", fmtOffset(off) + " vs main");
+    const lcd = $(".lcd", el);
+    lcd.textContent = fmtOffset(off);
+    lcd.classList.toggle("zero", off === 0);
+    const ms = $(".mslide", el);
+    ms.classList.toggle("on", !!sp.muted);
+    ms.setAttribute("aria-checked", sp.muted ? "true" : "false");
+    $(".mlab .led", el).className = "led" + (sp.muted ? " on red" : "");
+  });
   const all = s.speakers.every((sp) => sp.in_group);
   $("#k-party").classList.toggle("hot", all && s.speakers.length > 1);
 }
