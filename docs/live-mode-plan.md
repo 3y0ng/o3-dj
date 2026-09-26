@@ -33,12 +33,14 @@ Set **one line**, `live.venue` (e.g. `"sydney_01"`), and timezone, weather locat
    the session refreshes itself).
 2. Calls `get_location_occupancy_counts` for the venue code every 5 minutes (`poll_seconds`). Flipping to live can force a
    refresh, but never within 60 s of the last request, and failures wait for the next scheduled poll (no retry loops).
-3. Reads the venue's `red_capacity_threshold` as "100% full" every 6 hours, unless `live.capacity` is set.
+3. Capacity ("100% full") is the venue's `capacity` in `config.json`: O3's `red_capacity_threshold`, copied from
+   `physical_location` on 26 Sep 2026 (Newtown 160, Southbank 120, Brunswick 120, Sydney 120, Auckland 80). Update it there if
+   O3 changes a threshold.
 
-Load on Supabase: about 13 requests an hour per DJ (12 occupancy calls, about 1 session refresh, a capacity read every 6 h).
+Load on Supabase: about 13 requests an hour per DJ (12 occupancy calls and about 1 session refresh).
 
-No tables, functions, policies or users are created or changed. Requests are limited to: sign-in, that function, and reading
-`physical_location` (tested in `tests/test_live.py`).
+No tables, functions, policies or users are created or changed. Requests are limited to sign-in and that one function
+(tested in `tests/test_live.py`).
 
 ### Providing access
 

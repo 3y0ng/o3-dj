@@ -142,8 +142,7 @@ def test_venue_timezone(tmp_path):
 
 class FakeSupabase:
     """Records every request; only allows sign-in, the occupancy function and reading venues."""
-    ALLOWED = {("POST", "/auth/v1/token"), ("POST", "/rest/v1/rpc/get_location_occupancy_counts"),
-               ("GET", "/rest/v1/physical_location")}
+    ALLOWED = {("POST", "/auth/v1/token"), ("POST", "/rest/v1/rpc/get_location_occupancy_counts")}
 
     def __init__(self, occupancy=58, red=160, expire_first_token=False):
         self.calls, self.occupancy, self.red = [], occupancy, red
@@ -177,7 +176,7 @@ O3_CFG = {"mode": "o3", "supabase_url": "https://proj.supabase.co", "location_co
           "key": "anon", "email": "dj@o3.test", "password": "pw"}
 
 
-def _o3_feed(monkeypatch, fake, capacity=None, cfg=O3_CFG):
+def _o3_feed(monkeypatch, fake, capacity=160, cfg=O3_CFG):
     monkeypatch.setattr(live_mod.requests, "post", lambda url, **kw: fake.handle("POST", url, **kw))
     monkeypatch.setattr(live_mod.requests, "get", lambda url, **kw: fake.handle("GET", url, **kw))
     for verb in ("patch", "put", "delete"):
@@ -189,8 +188,8 @@ def test_o3_mode_signs_in_and_uses_existing_function(monkeypatch):
     fake = FakeSupabase(occupancy=58, red=160)
     feed = _o3_feed(monkeypatch, fake)
     assert feed.configured and feed.poll(force=True), feed.error
-    assert feed.value == 36 and feed.detail["count"] == 58 and feed.detail["capacity"] == 160  # 58/160
-    assert feed.detail["venue"] == "Newtown"
+    assert feed.value == 36 and feed.detail == {"count": 58, "capacity": 160}  # 58/160
+    assert len(fake.calls) == 2  # sign-in + one function call
     rpc = next(c for c in fake.calls if "rpc" in c[1])
     assert rpc[2]["json"] == {"p_location_codes": ["sydney_01"]}
     assert rpc[2]["headers"]["Authorization"] == "Bearer t1" and rpc[2]["headers"]["apikey"] == "anon"
@@ -198,12 +197,12 @@ def test_o3_mode_signs_in_and_uses_existing_function(monkeypatch):
     assert signin[2]["params"] == {"grant_type": "password"} and signin[2]["json"]["email"] == "dj@o3.test"
 
 
-def test_o3_mode_config_capacity_wins(monkeypatch):
+def test_o3_mode_uses_configured_capacity(monkeypatch):
     fake = FakeSupabase(occupancy=40)
     feed = _o3_feed(monkeypatch, fake, capacity=80)
     feed.poll(force=True)
     assert feed.value == 50
-    assert not any(c[1] == "/rest/v1/physical_location" for c in fake.calls)
+    assert not _o3_feed(monkeypatch, fake, capacity=None).configured  # no capacity -> not configured
 
 
 def test_o3_mode_recovers_from_expired_session(monkeypatch):
@@ -216,7 +215,7 @@ def test_o3_mode_recovers_from_expired_session(monkeypatch):
 def test_o3_mode_lists_what_is_missing(monkeypatch):
     for k in ("O3_SUPABASE_KEY", "O3_DJ_EMAIL", "O3_DJ_PASSWORD"):
         monkeypatch.delenv(k, raising=False)
-    feed = OccupancyFeed({"mode": "o3", "supabase_url": "https://proj.supabase.co"}, None)
+    feed = OccupancyFeed({"mode": "o3", "supabase_url": "https://proj.supabase.co"}, 160)
     missing = " ".join(feed.missing)
     assert not feed.configured
     assert "location_code" in missing and "O3_SUPABASE_KEY" in missing and "O3_DJ_EMAIL" in missing
@@ -242,7 +241,7 @@ def test_venue_preset_fills_timezone_weather_and_code():
     live = resolve_live_config(cfg)
     assert live["timezone"] == "Australia/Melbourne" and live["venue_name"] == "Brunswick"
     assert live["weather"]["lat"] == CFG["venues"]["melbourne_02"]["lat"]
-    assert live["occupancy"]["location_code"] == "melbourne_02"
+    assert live["occupancy"]["location_code"] == "melbourne_02" and live["capacity"] == 120
     # explicit settings win
     cfg["live"] = {**cfg["live"], "timezone": "UTC", "occupancy": {**CFG["live"]["occupancy"], "location_code": "x"}}
     live = resolve_live_config(cfg)
@@ -264,7 +263,7 @@ def test_supabase_request_budget(monkeypatch):
     monkeypatch.setattr(live_mod.time, "time", lambda: clock[0])
     clock[0] += 301
     feed.poll()
-    assert len(fake.calls) == n + 1          # one rpc, capacity cached, session still valid
+    assert len(fake.calls) == n + 1          # one rpc per poll, session still valid
     clock[0] += 60
     feed.poll(); assert len(fake.calls) == n + 1
 
@@ -274,7 +273,7 @@ def test_failed_poll_waits_for_next_slot(monkeypatch):
     def boom(*a, **k):
         calls.append(1); raise RuntimeError("down")
     monkeypatch.setattr(live_mod.requests, "post", boom)
-    feed = OccupancyFeed(O3_CFG, None)
+    feed = OccupancyFeed(O3_CFG, 160)
     feed.poll(force=True)
     for _ in range(10):
         feed.poll(); feed.poll(force=True)

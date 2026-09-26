@@ -138,8 +138,8 @@ class OccupancyFeed(Feed):
     """Read-only occupancy from Supabase.
 
     mode 'o3'    : O3's existing get_location_occupancy_counts() for `location_code`, called as a signed-in
-                   app user; capacity = the venue's red_capacity_threshold in physical_location (unless
-                   `capacity` is set). No database changes.
+                   app user. Capacity is the venue's `capacity` in config.json (O3's red threshold, copied from
+                   physical_location), so each poll is a single request. No database changes.
     mode 'count' : HEAD a table with filters and read the exact count.
     mode 'rpc'   : call another existing function that returns a number (or {result_key: n}).
     """
@@ -147,11 +147,9 @@ class OccupancyFeed(Feed):
 
     def __init__(self, cfg, capacity):
         super().__init__(cfg.get("poll_seconds", 300))  # every 5 min: ~13 Supabase requests an hour in total
-        self.cfg, self.capacity, self.fixed_capacity = cfg, capacity, capacity
+        self.cfg, self.capacity = cfg, capacity
         self.url = (cfg.get("supabase_url") or "").rstrip("/")
         self.session = None
-        self.venue = {}
-        self.capacity_at = 0.0
 
     def _secret(self, name, env_default):
         return os.environ.get(self.cfg.get(f"{name}_env", env_default)) or self.cfg.get(name)
@@ -169,6 +167,8 @@ class OccupancyFeed(Feed):
         if c.get("mode") == "o3":
             if not c.get("location_code"):
                 need.append("location_code")
+            if not self.capacity:
+                need.append("capacity")
             if not self.key:
                 need.append("O3_SUPABASE_KEY (the app's public anon key)")
             if not self._secret("email", "O3_DJ_EMAIL") or not self._secret("password", "O3_DJ_PASSWORD"):
@@ -212,17 +212,6 @@ class OccupancyFeed(Feed):
         r.raise_for_status()
         return r.json()
 
-    def _o3_capacity(self, code):
-        """`live.capacity` in config wins; otherwise the venue's red threshold from physical_location."""
-        if self.fixed_capacity:
-            return self.fixed_capacity
-        if not self.capacity or time.time() - self.capacity_at > self.cfg.get("capacity_refresh_hours", 6) * 3600:
-            rows = self._get("/rest/v1/physical_location", params={
-                "location_code": f"eq.{code}", "select": "location_name,green_capacity_threshold,red_capacity_threshold"})
-            if not rows or not rows[0].get("red_capacity_threshold"):
-                raise RuntimeError(f"no capacity for {code}")
-            self.capacity, self.venue, self.capacity_at = rows[0]["red_capacity_threshold"], rows[0], time.time()
-        return self.capacity
 
     def count_params(self, now=None):
         c = self.cfg
@@ -243,13 +232,10 @@ class OccupancyFeed(Feed):
         c = self.cfg
         if c["mode"] == "o3":
             code = c["location_code"]
-            capacity = self._o3_capacity(code)
             rows = self._rpc("get_location_occupancy_counts", {"p_location_codes": [code]})
             count = next((int(r["occupancy"]) for r in rows or [] if r.get("location_code") == code), 0)
-            pct = max(0, min(100, round(100 * count / capacity)))
-            venue = self.venue or {}
-            return pct, {"count": count, "capacity": capacity, "venue": venue.get("location_name", code),
-                         "green": venue.get("green_capacity_threshold")}
+            pct = max(0, min(100, round(100 * count / self.capacity)))
+            return pct, {"count": count, "capacity": self.capacity}
         if c["mode"] == "count":
             r = requests.head(f"{self.url}/rest/v1/{c['table']}", params=self.count_params(), timeout=10,
                               headers={**self._headers(), "Prefer": "count=exact", "Range": "0-0"})
@@ -280,6 +266,7 @@ def resolve_live_config(cfg):
         if live["weather"].get("lat") is None:
             live["weather"]["lat"], live["weather"]["lon"] = venue.get("lat"), venue.get("lon")
         live["occupancy"]["location_code"] = live["occupancy"].get("location_code") or live["venue"]
+        live["capacity"] = live.get("capacity") or venue.get("capacity")
         live["venue_name"] = venue.get("name")
     return live
 
