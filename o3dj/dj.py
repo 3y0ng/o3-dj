@@ -54,6 +54,9 @@ class DJ:
     def __init__(self, cfg, player, library, cache, meta, state_file=DATA / "state.json"):
         self.cfg, self.player, self.library, self.cache, self.meta = cfg, player, library, cache, meta
         self.store = JsonFile(state_file, {"inputs": {}, "votes": {}, "history": []})
+        # per-venue calibration lives beside the state file (data/calibration.json, or mock_calibration.json)
+        cal_name = state_file.name.replace("state", "calibration") if "state" in state_file.name else "calibration.json"
+        self.calibration_store = JsonFile(state_file.with_name(cal_name), {})
         saved = self.store.data.get("inputs") or {"genres": cfg["default_genres"]}
         self.inputs = brain.Inputs.from_dict(saved)
         self.votes = self.store.data.setdefault("votes", {})
@@ -146,8 +149,42 @@ class DJ:
             i.occupancy = e["occupancy"]
         return i
 
+    @property
+    def venue_key(self):
+        return self.live.cfg.get("venue") or "_default"
+
+    @property
+    def calibration(self):
+        return self.calibration_store.data.get(self.venue_key, {})
+
     def compute(self):
-        return brain.targets(self.effective_inputs(), self.cfg, self.hour_now(), self.library.genres())
+        return brain.targets(self.effective_inputs(), self.cfg, self.hour_now(), self.library.genres(), self.calibration)
+
+    def save_calibration(self):
+        """Bake the current knob trims into this venue's default for the current part of the day."""
+        with self.lock:
+            if not self.inputs.auto:
+                raise ValueError("switch auto vol on to calibrate (manual volume isn't tied to a time of day)")
+            dp = self.targets["daypart"]
+            cal = self.calibration_store.data.setdefault(self.venue_key, {"volume": {}, "energy": {}})
+            v = cal["volume"][dp] = int(cal["volume"].get(dp, 0) + self.inputs.volume_trim)
+            e = cal["energy"][dp] = round(cal["energy"].get(dp, 0) + self.inputs.energy_trim, 2)
+            self.inputs.volume_trim, self.inputs.energy_trim = 0, 0.0
+            self.calibration_store.save()
+            self.save()
+            self.targets = self.compute()  # same sound: the trim moved into the calibration
+            self.event(f"saved {dp} for {self.live.cfg.get('venue_name') or 'this venue'}: vol {v:+d}, energy {e:+.2f}")
+
+    def reset_calibration(self):
+        with self.lock:
+            dp = self.targets["daypart"]
+            cal = self.calibration_store.data.get(self.venue_key, {})
+            for k in ("volume", "energy"):
+                cal.get(k, {}).pop(dp, None)
+            self.calibration_store.save()
+            self.targets = self.compute()
+            self.dirty_at = time.time()
+            self.event(f"{dp} calibration reset to defaults")
 
     def available(self, t):
         if self.failed(t.id):
@@ -433,7 +470,7 @@ class DJ:
                 elif k in ("occupancy", "manual_volume"):
                     v = int(max(0, min(100, v)))
                 elif k == "volume_trim":
-                    v = int(max(-30, min(30, v)))
+                    v = int(max(-50, min(50, v)))
                 elif k == "energy_trim":
                     v = round(max(-0.5, min(0.5, float(v))), 2)
                 elif k == "hour_override" and v is not None:
@@ -772,5 +809,14 @@ class DJ:
                 "cache": {"files": len(self.cache.names), "mb": round(self.cache.usage_mb()),
                           "analysed": self.meta.count(), "tracks": len(lib)},
                 "events": list(self.events),
+                "calibration": {
+                    "daypart": self.targets["daypart"],
+                    "venue": self.live.cfg.get("venue_name") or self.live.cfg.get("venue"),
+                    "venue_detected_by": self.live.cfg.get("venue_detected_by"),
+                    "volume": self.calibration.get("volume", {}).get(self.targets["daypart"], 0),
+                    "energy": self.calibration.get("energy", {}).get(self.targets["daypart"], 0),
+                    "unsaved": bool(self.inputs.volume_trim or self.inputs.energy_trim),
+                    "all": self.calibration,
+                },
                 "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"]},
             }

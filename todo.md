@@ -63,6 +63,11 @@ Still open:
 
 ## 2. Tuning (from how it was used)
 
+- [x] Per-venue, per-daypart calibration: set knobs by ear → **save as <daypart> default** (`data/calibration.json`).
+- [x] Per-venue volume cap (Newtown 75; the old global 60 was too quiet for a multi-floor venue).
+- [x] Venue auto-detected from the Sonos household ID (Newtown recorded), falling back to public IP.
+- [ ] Calibrate Newtown for each part of the day (morning, afternoon, early evening, evening, late night).
+
 - [x] The first session ran at the minimum energy trim and volume −7…−30, so the curve was lowered:
   afternoon 0.70/42 → 0.45/36, evening 0.38/28 → 0.25/26, late night 0.25/22 → 0.18/20. The energy trim range is now ±0.5.
   Saved trims were reset to 0.

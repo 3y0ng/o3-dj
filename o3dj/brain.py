@@ -43,10 +43,18 @@ def interp_curve(curve, hour):
     return curve[-1][1], curve[-1][2], curve[-1][3]
 
 
-def targets(inputs: Inputs, cfg, hour_now: float, all_genres):
+def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
     hour = inputs.hour_override if inputs.hour_override is not None else hour_now
     energy, volume, daypart = interp_curve(cfg["daypart_curve"], hour)
     reasons = [f"{daypart} {int(hour):02d}:{int(hour % 1 * 60):02d} -> energy {energy:.2f}, vol {volume:.0f}"]
+
+    # Venue calibration: staff-saved offsets for this part of the day (see DJ.save_calibration)
+    cal_v = (calibration or {}).get("volume", {}).get(daypart, 0)
+    cal_e = (calibration or {}).get("energy", {}).get(daypart, 0)
+    if cal_v or cal_e:
+        volume += cal_v
+        energy += cal_e
+        reasons.append(f"calibrated {daypart}: vol {cal_v:+d}, energy {cal_e:+.2f}")
 
     selected = [g for g in inputs.genres if g in all_genres] or list(all_genres)
     weights = {g: 1.0 for g in selected}

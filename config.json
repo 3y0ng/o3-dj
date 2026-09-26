@@ -52,7 +52,8 @@
   "mock_track_seconds": 45,
 
   "venues": {
-    "sydney_01":    { "name": "Newtown",   "address": "32-38 King St, Newtown",           "timezone": "Australia/Sydney",    "lat": -33.889, "lon": 151.187 },
+    "sydney_01":    { "name": "Newtown",   "address": "32-38 King St, Newtown",           "timezone": "Australia/Sydney",    "lat": -33.889, "lon": 151.187,
+                      "sonos_households": ["Sonos_igprOKoDeKZe0pfnrVtGG727gO"], "public_ips": ["180.150.9.35"], "max_volume": 75 },
     "sydney_02":    { "name": "Sydney",    "address": "6 Harbour St, Haymarket",          "timezone": "Australia/Sydney",    "lat": -33.877, "lon": 151.202 },
     "melbourne_01": { "name": "Southbank", "address": "87 Queens Bridge St, Southbank",   "timezone": "Australia/Melbourne", "lat": -37.824, "lon": 144.961 },
     "melbourne_02": { "name": "Brunswick", "address": "268 Barkly St, Brunswick",         "timezone": "Australia/Melbourne", "lat": -37.770, "lon": 144.957 },

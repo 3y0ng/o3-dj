@@ -91,6 +91,7 @@
       <div class="enc" data-enc="occ"     data-color="white"  tabindex="0" role="slider" aria-label="occupancy"><div class="knob"><div class="cap"></div></div><span>occupancy</span></div>
       <div class="enc" data-enc="time"    data-color="orange" tabindex="0" role="slider" aria-label="time of day"><div class="knob"><div class="cap"></div></div><span>time</span></div>
       <!-- demo: the knobs set the atmosphere · live: occupancy + time come from live data -->
+      <div class="knob-panel">
       <div class="slide-wrap">
         <span class="slide-lab" data-for="demo">demo</span>
         <button class="slide" id="k-mode" role="switch" aria-checked="false" aria-label="live data"
@@ -98,6 +99,15 @@
           <span class="thumb"></span>
         </button>
         <span class="slide-lab" data-for="live"><span class="led"></span>live data</span>
+      </div>
+      <!-- calibrate: set the knobs by ear, then save them as this venue's default for this time of day -->
+      <div class="cal-row">
+        <button class="mini cal-save" id="k-cal-save" title="make the current volume & energy knobs the default for this time of day at this venue">
+          <span class="led"></span>save as <b id="cal-dp">…</b> default
+        </button>
+        <span class="cal-info" id="cal-info"></span>
+        <button class="mini ghost" id="k-cal-reset" title="forget the saved levels for this time of day">reset</button>
+      </div>
       </div>
     </div>
 

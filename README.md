@@ -42,6 +42,26 @@ Knob trims (volume/energy) reset automatically when the real clock moves into th
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
 
+## Calibrating volume and energy
+
+The defaults are a starting point; every venue sounds different. To calibrate:
+
+1. Wait for (or simulate with the orange time knob) the part of the day you want to tune: late night, early morning, morning,
+   afternoon, early evening or evening.
+2. Turn the **blue** (volume) and **green** (energy) knobs until the room sounds right.
+3. Press **save as <evening> default** under the knobs.
+
+That offset is now this venue's default for that part of the day (kept in `data/calibration.json` on the DJ laptop), the knobs go
+back to zero, and nothing audible changes. **reset** forgets it. Weather and occupancy still adjust on top of the calibrated level.
+Each venue also has a `max_volume` safety cap in `config.json` (`venues.<code>.max_volume`; Newtown 75, others 60).
+
+## Which venue am I in?
+
+The DJ works it out on startup, from the **Sonos system** it's controlling (each venue's Sonos household has a unique, permanent
+ID, listed under `venues.<code>.sonos_households` in `config.json`), falling back to the network's public IP. The startup log
+prints `venue: Newtown (sydney_01, from sonos)`. For a new venue, run it once, copy the household ID from the "not identified"
+message into `config.json`, and you're done. `live.venue` in `config.local.json` overrides detection.
+
 ## Demo and live mode
 
 The **live data** key switches modes (details and setup: [docs/live-mode-plan.md](docs/live-mode-plan.md)).

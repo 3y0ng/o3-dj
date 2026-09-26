@@ -60,7 +60,7 @@ const ENC = {
   volume: {
     step(d) {
       const i = S.inputs;
-      if (i.auto) setInputs({ volume_trim: clamp(i.volume_trim + d, -30, 30) });
+      if (i.auto) setInputs({ volume_trim: clamp(i.volume_trim + d, -50, 50) });
       else setInputs({ manual_volume: clamp(i.manual_volume + d, 0, S.limits.max_volume) });
       const shown = i.auto ? Math.round(S.targets.volume_base + i.volume_trim) : i.manual_volume;
       popup("volume", clamp(shown, S.limits.min_volume, S.limits.max_volume),
@@ -181,6 +181,13 @@ function initKeys() {
   };
   $("#k-mode").addEventListener("click", () => setMode(S.mode === "live" ? "demo" : "live"));
   $$(".slide-lab").forEach((l) => l.addEventListener("click", () => setMode(l.dataset.for)));
+  $("#k-cal-save").addEventListener("click", async () => {
+    await act("/api/calibration", { action: "save" });
+    if (S.calibration) popup("saved", S.calibration.daypart, `default for ${S.calibration.venue || "this venue"} · vol ${fmtSigned(S.calibration.volume)}`, "var(--green)");
+  });
+  $("#k-cal-reset").addEventListener("click", () => {
+    if (confirm(`Forget the saved ${S.calibration.daypart} levels and go back to the defaults?`)) act("/api/calibration", { action: "reset" });
+  });
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
     // switching to manual keeps the current loudness as the starting point
@@ -319,6 +326,7 @@ function render(s, local = false) {
   $(".led", $("#k-auto")).classList.toggle("on", i.auto);
   $(".led", $("#k-clock")).classList.toggle("on", i.hour_override == null);
   renderMode(s);
+  renderCalibration(s);
   $("em", $("#k-occ")).textContent = s.mode === "live" && (s.feeds || {}).occupancy_src === "override" ? "occ · live" : "occ";
   $(".led", $("#k-play")).className = "led" + (playing ? " on green" : "");
   $("#play-icon").innerHTML = playing
@@ -343,6 +351,20 @@ function renderMode(s) {
   if (!supported) sw.title = "restart the DJ to enable live data";
   $$(".slide-lab").forEach((l) => l.classList.toggle("active", (l.dataset.for === "live") === live));
   $(".slide-lab .led").className = "led" + (live ? " on green" : "");
+}
+
+function renderCalibration(s) {
+  const c = s.calibration, row = $(".cal-row");
+  row.hidden = !c;  // older server
+  if (!c) return;
+  $("#cal-dp").textContent = c.daypart;
+  const saveBtn = $("#k-cal-save");
+  saveBtn.disabled = !c.unsaved || !s.inputs.auto;
+  saveBtn.title = !s.inputs.auto ? "switch auto vol on to calibrate" : c.unsaved ? `save the knob changes as the ${c.daypart} default` : "turn the volume / energy knobs first";
+  $(".led", saveBtn).className = "led" + (c.unsaved && s.inputs.auto ? " on" : "");
+  const saved = c.volume || c.energy;
+  $("#cal-info").textContent = saved ? `saved: vol ${fmtSigned(c.volume)} · nrg ${fmtSigned(c.energy, 2)}` : "defaults";
+  $("#k-cal-reset").hidden = !saved;
 }
 
 function renderGenreKeys(s) {

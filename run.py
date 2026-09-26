@@ -39,6 +39,14 @@ def main():
         print("Looking for Sonos speakers...")
         print(f"  found {player.discover()} room(s)")
 
+    from o3dj import venue
+    code, how = venue.detect(cfg, household=None if args.mock else player.household())
+    if code:
+        venue.apply(cfg, code, how)
+        print(f"  venue: {cfg['venues'][code]['name']} ({code}, from {how})")
+    else:
+        print(f"  venue: not identified ({how}); live data needs one. Add this Sonos household to config.json venues.")
+
     library = Library(cfg)
     library.refresh()
     state_file = config.DATA / ("mock_state.json" if args.mock else "state.json")

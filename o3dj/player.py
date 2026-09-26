@@ -44,6 +44,11 @@ class SonosPlayer:
                 self.anchor_ip = sorted(self.zones.values(), key=lambda z: z.player_name)[0].ip_address
         return len(self.zones)
 
+    def household(self):
+        with self.lock:
+            z = self.zones.get(self.anchor_ip) or self.soco.SoCo(self.anchor_ip)
+            return z.household_id
+
     @property
     def ctrl(self):
         """The group coordinator for the anchor room; all transport goes here."""
@@ -208,6 +213,9 @@ class MockPlayer:
 
     def discover(self):
         return len(self.rooms)
+
+    def household(self):
+        return "Sonos_MOCK"
 
     def speakers(self):
         return [{"ip": ip, "name": r["name"], "in_group": ip in self.group,

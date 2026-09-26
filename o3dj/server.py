@@ -80,6 +80,20 @@ def create_app(dj):
         dj.clear_override(request.get_json(force=True).get("key"))
         return ok()
 
+    @app.post("/api/calibration")
+    def calibration():
+        action = request.get_json(force=True).get("action")
+        try:
+            if action == "save":
+                dj.save_calibration()
+            elif action == "reset":
+                dj.reset_calibration()
+            else:
+                return jsonify({"error": "action must be save or reset"}), 400
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        return ok()
+
     @app.post("/api/speakers")
     def speakers():
         body = request.get_json(force=True)
