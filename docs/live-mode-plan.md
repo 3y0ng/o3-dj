@@ -11,7 +11,7 @@ Constraint: **no changes to O3's database.** Supabase is read-only from the DJ.
 |---|---|---|
 | Time of day | the venue's clock | from `venues.<code>.timezone`; the time knob is disabled in live mode |
 | Weather | Open-Meteo, fetched by the DJ every 10 min | free, no key; venue lat/lon from `venues` |
-| Occupancy | O3 Supabase (`o3-flutter-app` production), read-only, every 60 s | see below |
+| Occupancy | O3 Supabase (`o3-flutter-app` production), read-only, every 5 min | see below |
 
 Set **one line**, `live.venue` (e.g. `"sydney_01"`), and timezone, weather location and the Supabase venue code follow.
 
@@ -31,8 +31,11 @@ Set **one line**, `live.venue` (e.g. `"sydney_01"`), and timezone, weather locat
 
 1. Signs in as an O3 app account with the app's public anon key (standard Supabase password sign-in, the same as the app;
    the session refreshes itself).
-2. Calls `get_location_occupancy_counts` for the venue code every 60 s.
-3. Reads the venue's `red_capacity_threshold` as "100% full" (hourly), unless `live.capacity` is set.
+2. Calls `get_location_occupancy_counts` for the venue code every 5 minutes (`poll_seconds`). Flipping to live can force a
+   refresh, but never within 60 s of the last request, and failures wait for the next scheduled poll (no retry loops).
+3. Reads the venue's `red_capacity_threshold` as "100% full" every 6 hours, unless `live.capacity` is set.
+
+Load on Supabase: about 13 requests an hour per DJ (12 occupancy calls, about 1 session refresh, a capacity read every 6 h).
 
 No tables, functions, policies or users are created or changed. Requests are limited to: sign-in, that function, and reading
 `physical_location` (tested in `tests/test_live.py`).

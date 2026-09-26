@@ -248,3 +248,34 @@ def test_venue_preset_fills_timezone_weather_and_code():
     live = resolve_live_config(cfg)
     assert live["timezone"] == "UTC" and live["occupancy"]["location_code"] == "x"
     assert "venue" not in CFG["live"] or CFG["live"]["venue"] is None  # config.json itself untouched
+
+
+def test_supabase_request_budget(monkeypatch):
+    """Occupancy polls every 5 min; flipping modes can't hammer Supabase; failures don't retry in a loop."""
+    fake = FakeSupabase()
+    feed = _o3_feed(monkeypatch, fake)
+    assert feed.poll_seconds == 300
+    feed.poll(force=True)
+    n = len(fake.calls)                      # sign-in + capacity + rpc
+    for _ in range(20):                      # someone flicking the switch
+        feed.poll(force=True); feed.poll()
+    assert len(fake.calls) == n
+    clock = [time.time()]
+    monkeypatch.setattr(live_mod.time, "time", lambda: clock[0])
+    clock[0] += 301
+    feed.poll()
+    assert len(fake.calls) == n + 1          # one rpc, capacity cached, session still valid
+    clock[0] += 60
+    feed.poll(); assert len(fake.calls) == n + 1
+
+
+def test_failed_poll_waits_for_next_slot(monkeypatch):
+    calls = []
+    def boom(*a, **k):
+        calls.append(1); raise RuntimeError("down")
+    monkeypatch.setattr(live_mod.requests, "post", boom)
+    feed = OccupancyFeed(O3_CFG, None)
+    feed.poll(force=True)
+    for _ in range(10):
+        feed.poll(); feed.poll(force=True)
+    assert len(calls) == 1 and feed.error

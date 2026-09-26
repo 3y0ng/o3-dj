@@ -48,6 +48,7 @@ class Feed:
         self.at = 0.0           # when value was fetched
         self.error = None
         self.next_poll = 0.0
+        self.last_attempt = 0.0
 
     @property
     def configured(self):
@@ -56,10 +57,14 @@ class Feed:
     def fetch(self):
         raise NotImplementedError
 
+    MIN_GAP = 60  # even a forced poll (e.g. flipping to live) waits this long since the last request
+
     def poll(self, force=False):
-        if not self.configured or (not force and time.time() < self.next_poll):
+        now = time.time()
+        if not self.configured or now < self.next_poll and (not force or now - self.last_attempt < self.MIN_GAP):
             return False
-        self.next_poll = time.time() + self.poll_seconds
+        self.last_attempt = now
+        self.next_poll = now + self.poll_seconds  # failures also wait for the next scheduled poll: no retry loops
         try:
             value, detail = self.fetch()
             changed = value != self.value
@@ -141,7 +146,7 @@ class OccupancyFeed(Feed):
     name = "occupancy"
 
     def __init__(self, cfg, capacity):
-        super().__init__(cfg.get("poll_seconds", 60))
+        super().__init__(cfg.get("poll_seconds", 300))  # every 5 min: ~13 Supabase requests an hour in total
         self.cfg, self.capacity, self.fixed_capacity = cfg, capacity, capacity
         self.url = (cfg.get("supabase_url") or "").rstrip("/")
         self.session = None
@@ -211,7 +216,7 @@ class OccupancyFeed(Feed):
         """`live.capacity` in config wins; otherwise the venue's red threshold from physical_location."""
         if self.fixed_capacity:
             return self.fixed_capacity
-        if not self.capacity or time.time() - self.capacity_at > 3600:
+        if not self.capacity or time.time() - self.capacity_at > self.cfg.get("capacity_refresh_hours", 6) * 3600:
             rows = self._get("/rest/v1/physical_location", params={
                 "location_code": f"eq.{code}", "select": "location_name,green_capacity_threshold,red_capacity_threshold"})
             if not rows or not rows[0].get("red_capacity_threshold"):

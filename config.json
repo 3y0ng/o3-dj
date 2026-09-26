@@ -73,7 +73,8 @@
       "key_env": "O3_SUPABASE_KEY",
       "email_env": "O3_DJ_EMAIL",
       "password_env": "O3_DJ_PASSWORD",
-      "poll_seconds": 60
+      "poll_seconds": 300,
+      "capacity_refresh_hours": 6
     }
   }
 }
