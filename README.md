@@ -4,11 +4,11 @@ A live DJ for the O3 study cafes. It picks music to suit the room (time of day,
 weather, how busy it is) and plays it on Sonos speakers. You drive it from a
 small controller styled after the teenage engineering OP-1.
 
-![O3 DJ controller: tape-deck screen, colour encoders, genre/weather/mood/transport keys and a row of room keys](docs/screenshot.png)
+![O3 DJ controller: tape-deck screen, colour faders, genre/weather/mood/transport keys and a channel strip per room](docs/screenshot.png)
 
 <sub>Mock mode, early evening with rain: the DJ is mixing chill with jazzy cafe (69% jazz) at low energy, two rooms synced.</sub>
 
-This is the **test bench** version: atmosphere inputs are manual knobs and keys,
+This is the **test bench** version: atmosphere inputs are manual faders and keys,
 not yet wired to live data (clock aside). It runs on a laptop on the same Wi-Fi as the speakers.
 
 ```bash
@@ -20,28 +20,30 @@ python3 run.py                         # real Sonos (main room IP in config.json
 Open http://localhost:8330. Anyone on the same Wi-Fi can use the address printed at startup.
 
 **On a phone** (same Wi-Fi): open the printed address, e.g. `http://192.168.0.70:8330`, in Safari, then
-Share → *Add to Home Screen* for an app-like icon. The phone layout puts play / skip / votes first. Drag a knob up or down
-to turn it, and double-tap to reset it.
+Share → *Add to Home Screen* for an app-like icon. The phone layout puts play / skip / votes first. Drag a fader up or down
+to move it, and double-tap to reset it.
 
 ## The controller
 
 | control | what it does |
 |---|---|
-| **blue knob** volume | in *auto vol*: trims the automatic level ±. With auto off: sets the volume directly. Double-click resets. |
-| **green knob** energy | nudges how upbeat the picks are. Double-click resets. |
-| **white knob** occupancy | sets how full the space is (turning it switches **occ** on). Above 50% the music gets slightly louder and more upbeat. |
-| **orange knob** time | simulates a time of day so you can test evening vs afternoon. **clock** key returns to the real time. |
+| **blue fader** volume | shows the volume the DJ is aiming for. In *auto vol* it moves by itself as the mood changes; moving it trims the automatic level. With auto off: sets the volume directly. Double-click resets. |
+| **green fader** energy | nudges how upbeat the picks are (centre = as the DJ sees it). Double-click resets. |
+| **white fader** occupancy | sets how full the space is (moving it switches **occ** on). Above 50% the music gets slightly louder and more upbeat. |
+| **orange fader** time | simulates a time of day (bottom = midnight) so you can test evening vs afternoon. **clock** key or a double-click returns to the real time. |
 
-Knob trims (volume/energy) reset automatically when the real clock moves into the next part of the day.
+Fader trims (volume/energy) reset automatically when the real clock moves into the next part of the day.
 | **genre** keys | chill / jazzy cafe / asian. You can pick several. The counts show cached/total tracks. |
 | **weather** keys | cloudy leans jazzier; rain leans jazzier, softer and calmer, and brings jazz in even if not selected. |
 | **play / skip** | play starts the DJ. **This replaces the main room's Sonos queue.** |
+| **listen** (slide switch on the unit's left side) | plays what the speakers are playing on this phone or laptop, in step with them (it streams the same file from the DJ laptop and follows the speaker's position to within a few hundredths of a second in mock mode, about half a second on real Sonos, nudging its speed rather than jumping). It acts as one more speaker in the group: it follows the group level, so fades and auto volume can be heard, but not the main room's own level offset or mute. The device volume sets the overall level. On by default in demo mode (only while the page is in front, so a forgotten tab stays quiet), off in live mode; sliding it remembers your choice on that device, and switched on by hand it keeps playing in the background. Browsers only start sound after a tap, so if its LED blinks, tap anywhere. In `--mock`, songs last their real length (measured once cached; `mock_track_seconds` until then). |
 | **love it / not this** | votes. "not this" skips; 3 net downvotes remove a track from rotation. You can also vote on "up next". |
-| **rooms** | tap a room to switch it on (join the synced group) or off. Switching off the **main** room hands the music to another room in the group, which becomes main; if it's the only room playing, the music pauses. |
+| **rooms** | one channel strip per speaker, with the room name printed at the top and a small LCD showing its state and volume. The **on** switch adds the room to the synced group or takes it out. Switching off the **main** room hands the music to another room in the group, which becomes main; if it's the only room playing, the music pauses. |
 | **main** (on each room) | makes that room the main room: it leads the group and holds the queue. The music carries on; a room that's off joins first. Remembered across restarts. |
-| **room knob** (small blue, on each room) | that room's volume relative to the main volume: five detents from 9 o'clock to 3 o'clock (−10, −5, 0, +5, +10; `room_offset_steps` in `config.json`). Drag, scroll or arrow keys; double-click resets. Saved per room; starts from `room_volume_offsets`. |
+| **room fader** (on each room) | that room's volume relative to the main volume, in five printed detents (−10, −5, 0, +5, +10; `room_offset_steps` in `config.json`). Drag, scroll or arrow keys; double-click resets. Saved per room; starts from `room_volume_offsets`. |
 | **mute** (slide switch, on each room) | mutes that room on the Sonos. It stays in the group, so unmuting is instant; a mute set in the Sonos app shows here too. |
 
+Song names too long for the screen scroll across it, pausing at the start of each pass.
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
 
@@ -52,7 +54,7 @@ It's one key, **calibrate** (next to the demo/live switch), and the screen shows
 1. **Press calibrate.** The speakers play a short song (starting 45 s in) for the first of six scenarios: quiet morning,
    lunchtime rush, rainy afternoon, busy after work, winding down, and a rainy near-empty night. The screen shows the
    scenario (time, weather, how full), the song, the current volume and energy, and a key legend.
-2. **Adjust by ear:** **blue knob** louder/softer, **green knob** faster/slower (a new song starts once you stop turning),
+2. **Adjust by ear:** **blue fader** louder/softer, **green fader** faster/slower (a new song starts once you let go),
    **skip** for another song.
 3. **Press calibrate** (now labelled *sounds right*) for the next scenario.
 4. After the sixth, the screen shows what it learned in plain words: overall level, packed room, empty room, rain, cloud.
@@ -61,7 +63,7 @@ It's one key, **calibrate** (next to the demo/live switch), and the screen shows
 Hold the key at any point to cancel (nothing changes). When not calibrating, holding it resets the venue to the defaults.
 The result is saved for this venue in `data/calibration.json` on the DJ laptop, and the DJ goes back to normal.
 
-The knobs still work day to day as temporary tweaks (they reset when the time of day moves on). Each venue also has a
+The faders still work day to day as temporary tweaks (they reset when the time of day moves on). Each venue also has a
 `max_volume` safety cap in `config.json` (Newtown 75, others 60).
 
 ## Which venue am I in?
@@ -75,9 +77,9 @@ message into `config.json`, and you're done. `live.venue` in `config.local.json`
 
 The **live data** key switches modes (details and setup: [docs/live-mode-plan.md](docs/live-mode-plan.md)).
 
-- **Demo** (default): you set weather, occupancy and time of day with the keys and knobs.
+- **Demo** (default): you set weather, occupancy and time of day with the keys and faders.
 - **Live**: time follows the venue clock, weather comes from Open-Meteo, and occupancy is read from O3's Supabase (read-only,
-  no database changes). Pressing a weather key or turning the occupancy knob overrides live data for an hour; press the lit
+  no database changes). Pressing a weather key or moving the occupancy fader overrides live data for an hour; press the lit
   weather key again, or the occ key, to hand back early. If a feed goes quiet for 15 minutes the DJ ignores it (`stale`)
   rather than acting on old data.
 
@@ -92,7 +94,7 @@ and capacity from the venue's red threshold. Details: [docs/live-mode-plan.md](d
 - **daypart_curve**: energy + volume by hour (a 24h cafe: calm late night, peak in the afternoon, winding down in the evening).
 - **weather**: energy/volume nudges and genre boosts.
 - **occupancy**: threshold and max boost.
-- **min_volume / max_volume**: hard safety limits. **room_volume_offsets**: starting per-room levels, e.g. `{"Cafe Entrance": 4}`; the knob on each room overrides them.
+- **min_volume / max_volume**: hard safety limits. **room_volume_offsets**: starting per-room levels, e.g. `{"Cafe Entrance": 4}`; the fader on each room overrides them.
 
 Picking: choose a genre by weight, then a track whose **energy** is close to the target,
 weighted by votes, avoiding the last 60 plays. Energy comes from analysing
@@ -103,6 +105,16 @@ tracks are analysed from a 60 s range read). Unanalysed tracks can still be pick
 
 The DJ only keeps ~2 tracks queued ahead on the speaker. When you change the mood,
 the upcoming picks are replaced within a couple of seconds and the current song plays out.
+
+## Loudness
+
+Every cached track is levelled once to the same loudness (EBU R128 integrated loudness, `normalise.target_lufs`,
+default −16 LUFS), so no song is much louder or quieter than the rest and the volume numbers mean the same thing for
+every track. The prefetcher measures each file with ffmpeg and rewrites it with the gain applied (boosts go through a
+limiter, capped at `max_boost_db`; tracks already within `skip_within_db` are left alone). The screen shows the gain,
+e.g. `lvl −1.9 dB`. The playing track and the next one (which Sonos pre-loads) are never rewritten; they get levelled
+next time. Results are in `data/normalised.json`. Not levelled yet: tracks still streaming through before they're cached,
+and files in `library/` (they're played as they are).
 
 ## Resilience
 

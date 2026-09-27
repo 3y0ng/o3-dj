@@ -6,6 +6,9 @@ The cache is the resilience layer:
     blip mid-song doesn't cut the music;
   - a "warm set" of tracks per genre is kept on disk so that if chillify.me
     (or the internet) is down, the DJ keeps playing from cache.
+
+Cached files are also loudness-normalised (EBU R128) once, so no track is much louder
+or quieter than the rest; data/normalised.json records each file's measured loudness and gain.
 """
 
 import hashlib
@@ -20,8 +23,9 @@ from pathlib import Path
 import requests
 
 from . import brain
-from .analysis import analyse, probe_duration
-from .config import CACHE_DIR, LIBRARY
+from .analysis import NORM_FORMATS, analyse, apply_gain, measure_lufs, probe_duration
+from .config import CACHE_DIR, DATA, LIBRARY
+from .store import JsonFile
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +34,9 @@ class Cache:
     def __init__(self, cfg):
         self.cfg = cfg["cache"]
         self.dir = CACHE_DIR
-        self.names = set(os.listdir(self.dir))
+        self.names = {n for n in os.listdir(self.dir) if not n.endswith(".part")}
+        self.norm_cfg = cfg.get("normalise", {})
+        self.norm = JsonFile(DATA / "normalised.json", {})  # cache file name -> {lufs, gain}
 
     def name_for(self, track):
         ext = Path(urllib.parse.urlparse(track.url or "").path).suffix.lower() or ".mp3"
@@ -58,6 +64,44 @@ class Cache:
                     f.write(chunk)
         os.replace(tmp, self.dir / name)
         self.names.add(name)
+        self.norm.data.pop(name, None)  # a fresh copy hasn't been levelled yet
+
+    # -- loudness normalisation ---------------------------------------------------
+    def can_normalise(self, track):
+        return (self.norm_cfg.get("enabled", True) and not track.path
+                and Path(self.name_for(track)).suffix in NORM_FORMATS)
+
+    def needs_normalising(self, track):
+        return self.can_normalise(track) and self.has(track) and self.name_for(track) not in self.norm.data
+
+    def gain(self, track):
+        """dB applied to the cached file (0 if it was already close), or None if not normalised."""
+        entry = self.norm.data.get(self.name_for(track))
+        return entry["gain"] if entry else None
+
+    def normalise(self, track):
+        """Measure the cached file and rewrite it at the target loudness. Returns the gain in dB."""
+        c = self.norm_cfg
+        name = self.name_for(track)
+        path = self.dir / name
+        lufs = measure_lufs(path)
+        gain = 0.0
+        if lufs > -50:  # near-silent reading: leave it alone rather than boost noise
+            gain = max(-c.get("max_cut_db", 15), min(c.get("max_boost_db", 8), c.get("target_lufs", -16) - lufs))
+        gain = round(gain, 1)
+        if abs(gain) >= c.get("skip_within_db", 1.0):
+            tmp = self.dir / (name + ".norm.part")
+            try:
+                apply_gain(path, tmp, gain, c.get("bitrate", "192k"))
+                os.replace(tmp, path)  # atomic: a reader mid-file keeps the old one
+            finally:
+                tmp.unlink(missing_ok=True)
+        else:
+            gain = 0.0
+        with self.norm.lock:
+            self.norm.data[name] = {"lufs": lufs, "gain": gain}
+        self.norm.save()
+        return gain
 
     def touch(self, track):
         p = self.local_path(track)
@@ -85,6 +129,8 @@ class Cache:
                 break
             p.unlink(missing_ok=True)
             self.names.discard(p.name)
+            self.norm.data.pop(p.name, None)
+        self.norm.save()
 
 
 class Prefetcher:
@@ -101,7 +147,11 @@ class Prefetcher:
     def _analyse(self, track, src):
         self.status = f"analysing {track.title}"
         try:
-            self.meta.put(track.id, analyse(src))
+            f = analyse(src)
+            gain = self.cache.gain(track) if src == self.cache.local_path(track) else None
+            if gain:  # energy should reflect the track as recorded, not after normalising
+                f["rms"] = round(f["rms"] * 10 ** (-gain / 20), 4)
+            self.meta.put(track.id, f)
         except Exception as e:
             log.info("analysis failed for %s: %s", track.id, e)
             self.meta.mark_failed(track.id)
@@ -111,6 +161,7 @@ class Prefetcher:
         try:
             self.cache.download(track)
             log.info("cached (%s) %s", why, track.title)
+            self._normalise(track)
             if self.has_ffmpeg and not self.meta.duration(track.id):
                 try:
                     self.meta.set_duration(track.id, probe_duration(self.cache.local_path(track)))
@@ -121,6 +172,23 @@ class Prefetcher:
             log.info("download failed for %s: %s", track.id, e)
             self.dj.note_failure(track.id)
             return False
+
+    def _normalise(self, track):
+        """Normalise a cached file, unless the speakers may be reading it right now
+        (the playing track, or the next one, which Sonos pre-loads)."""
+        if not (self.has_ffmpeg and self.cache.needs_normalising(track)):
+            return False
+        if track.id in self.dj.queued_ids()[:2]:
+            return False
+        self.status = f"levelling {track.title}"
+        try:
+            gain = self.cache.normalise(track)
+            log.info("normalised %s (%+.1f dB)", track.title, gain)
+        except Exception as e:
+            log.info("normalise failed for %s: %s", track.id, e)
+            with self.cache.norm.lock:  # don't retry forever; it still plays as it is
+                self.cache.norm.data[self.cache.name_for(track)] = {"lufs": None, "gain": 0.0, "failed": True}
+        return True
 
     def step(self):
         """Do one unit of work. Returns True if something was done."""
@@ -147,8 +215,17 @@ class Prefetcher:
             if t and t.url and not self.cache.has(t) and online:
                 return self._download(t, "upcoming")
 
-        # 2. analyse anything already on disk
+        # 1b. level upcoming tracks that were cached before they could be normalised
+        for tid in self.dj.queued_ids():
+            t = self.lib.get(tid)
+            if t and self._normalise(t):
+                return True
+
+        # 2. level, then analyse, anything already on disk
         if self.has_ffmpeg:
+            for t in self.lib.all():
+                if self._normalise(t):
+                    return True
             for t in self.lib.all():
                 if not self.meta.has(t.id) and self.cache.has(t):
                     self._analyse(t, self.cache.local_path(t))

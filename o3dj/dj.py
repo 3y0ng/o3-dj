@@ -925,7 +925,7 @@ class DJ:
                 "energy": None if e is None else round(e, 2), "bpm": f.get("bpm"),
                 "duration": f.get("duration"),
                 "up": v.get("up", 0), "down": v.get("down", 0), "plays": v.get("plays", 0),
-                "cached": self.cache.has(t)}
+                "cached": self.cache.has(t), "gain_db": self.cache.gain(t)}
 
     def _calibration_snapshot(self):
         saved = self.calibration
@@ -954,6 +954,8 @@ class DJ:
             # something the DJ didn't queue is playing (Spotify, radio, another app)
             status["other_source"] = bool(status.get("uri")) and status.get("state") == "PLAYING" \
                 and (not self.running or status["uri"] not in self.uri_map)
+            if status.get("read_at"):  # how old the reading is, so a listening device can place the speaker's position
+                status["age"] = round(time.time() - status.pop("read_at"), 3)
             if self.now_id and not status.get("duration"):
                 status["duration"] = int(self.meta.duration(self.now_id) or 0)
             return {

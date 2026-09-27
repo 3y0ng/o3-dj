@@ -44,6 +44,15 @@
     "analyse_remote": true
   },
 
+  "normalise": {
+    "enabled": true,
+    "target_lufs": -16,
+    "max_boost_db": 8,
+    "max_cut_db": 15,
+    "skip_within_db": 1.0,
+    "bitrate": "192k"
+  },
+
   "chillify": {
     "enabled": true,
     "catalog_url": "https://chillify.me/api/library",

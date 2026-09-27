@@ -12,9 +12,11 @@ to what is actually in the library.
 """
 
 import bisect
+import re
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -64,6 +66,37 @@ def probe_duration(src):
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                           "-of", "csv=p=0", str(src)], capture_output=True, text=True, timeout=30).stdout.strip()
     return round(float(out), 1) if out and out != "N/A" else None
+
+
+def measure_lufs(src):
+    """Integrated loudness (EBU R128, LUFS) of the whole file."""
+    err = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-nostdin", "-i", str(src),
+                          "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+                         capture_output=True, text=True, timeout=180).stderr
+    found = re.findall(r"^\s*I:\s*(-?[\d.]+|-inf)\s*LUFS", err, re.M)
+    if not found or found[-1] == "-inf":
+        raise ValueError("no loudness reading")
+    return round(float(found[-1]), 1)
+
+
+# container -> (ffmpeg muxer, audio encoder); other formats are left as they are
+NORM_FORMATS = {".mp3": ("mp3", "libmp3lame"), ".m4a": ("ipod", "aac"), ".aac": ("adts", "aac"),
+                ".flac": ("flac", "flac"), ".wav": ("wav", "pcm_s16le")}
+
+
+def apply_gain(src, dst, gain_db, bitrate="192k"):
+    """Write src to dst with gain_db applied. Boosts go through a limiter so they can't clip."""
+    fmt, codec = NORM_FORMATS[Path(src).suffix.lower()]
+    af = f"volume={gain_db:.2f}dB"
+    if gain_db > 0:
+        af += ",alimiter=limit=0.891:level=false:latency=true"  # -1 dBFS ceiling
+    cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(src), "-map", "0:a:0", "-map_metadata", "0",
+           "-af", af, "-c:a", codec]
+    if codec in ("libmp3lame", "aac"):
+        cmd += ["-b:a", bitrate]
+    if fmt == "mp3":
+        cmd += ["-id3v2_version", "3"]
+    subprocess.run(cmd + ["-f", fmt, str(dst)], capture_output=True, check=True, timeout=300)
 
 
 def raw_score(f):

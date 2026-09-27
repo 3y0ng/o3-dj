@@ -9,6 +9,7 @@ Read `README.md` for how it works and `todo.md` for what's next. Keep todo.md cu
 python3 run.py --mock      # silent simulated speakers, own state (data/mock_state.json), port 8330
 python3 run.py             # REAL speakers in a working cafe; see safety below
 python3 -m pytest -q       # tests; no network or speakers needed
+node --check web/app.js     # controller JS syntax; CI (.github/workflows/tests.yml) runs both on every push and PR
 ```
 
 Stack: Python 3.11, Flask, SoCo, numpy, ffmpeg/ffprobe (tempo + duration). Frontend is plain HTML/CSS/JS in `web/`
@@ -33,7 +34,9 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - `o3dj/player.py`: `SonosPlayer` (SoCo) and `MockPlayer` share one interface. Keep them in step; the mock
   deliberately reproduces Sonos quirks (duration reported as 0, removing the playing item resets to item 1).
 - `o3dj/library.py`: sources (Chillify catalogue, `library/<genre>/` files, `library/custom_tracks.json`).
-- `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, and analyses tempo.
+- `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, levels them
+  (loudness normalisation: `Cache.normalise` rewrites a cached file once; `data/normalised.json`), and analyses tempo.
+  Never rewrite the playing file or the next one: Sonos pre-loads it and range-reads the file.
 - `o3dj/analysis.py`: ffmpeg + numpy tempo/energy; energy is a percentile across analysed tracks. `track_meta.json` also stores durations.
 - `o3dj/live.py`: LIVE mode feeds (Open-Meteo weather, read-only Supabase occupancy) and staff overrides with expiry.
   `DJ.effective_inputs()` layers override → live → neutral; `brain.py` never knows which mode it's in.
@@ -66,7 +69,7 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - Queue item IDs `Q:0/n` are positions (SoCo's `remove_from_queue` is 0-based).
 - Changing the main room uses `DelegateGroupCoordinationTo` (`SonosPlayer.make_main`): the queue and playback move with it.
   SoCo caches group state for 5 s, so it polls with `clear_cache()` until the new leader shows up before using `ctrl`.
-  Per-room volume offsets (controller knob, snapped to `room_offset_steps`) live in `state.json` `room_offsets` by room name;
+  Per-room volume offsets (room fader, snapped to `room_offset_steps`) live in `state.json` `room_offsets` by room name;
   the chosen main room in `main_room`. Per-room mute is the Sonos mute, read back in `speakers()` (not stored by the DJ).
 
 ## Conventions

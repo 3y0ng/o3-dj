@@ -59,95 +59,161 @@ function setInputs(patch, delay = 140) {
   if (S) render(S, true);
 }
 
-// ── encoders (endless, like the OP-1) ─────────────────────────────
-const ENC = {
+// ── faders ────────────────────────────────────────────────────────
+// A fader maps its value onto the slot (0 = bottom, 1 = top). Dragging moves it relative to where
+// you grab it (no jump to the finger), scroll and arrow keys step it, double-click / double-tap resets.
+// Room levels use the same fader with printed detents.
+function faderHTML(label, { ticks = 11, marks = null, centre = false } = {}) {
+  const n = marks ? marks.length : ticks;
+  const scale = Array.from({ length: n }, (_, k) =>
+    `<i class="f-tick${centre && k === (n - 1) / 2 ? " mid" : ""}" style="--at:${k / (n - 1)}" data-k="${k}">${marks ? `<b>${marks[k]}</b>` : ""}</i>`).join("");
+  return `<div class="f-body"><div class="f-scale" aria-hidden="true">${scale}</div>` +
+    `<div class="f-slot"><i class="f-led"></i></div><div class="f-cap"><i></i></div></div>` +
+    (label ? `<span class="f-label">${label}</span>` : "");
+}
+
+// o: { min(), max(), quantum, get(), set(v), reset() }
+function bindFader(el, o) {
+  const body = $(".f-body", el), cap = $(".f-cap", el);
+  const snap = (v) => clamp(Math.round(v / o.quantum) * o.quantum, o.min(), o.max());
+  const move = (v) => {
+    v = snap(v);
+    if (Math.abs(v - snap(o.get())) > 1e-9) o.set(+v.toFixed(4));
+  };
+  let drag = null, lastTap = 0, wheelAcc = 0;
+  el.addEventListener("pointerdown", (e) => {
+    if (!S) return;
+    drag = { y: e.clientY, v: o.get(), moved: 0, travel: Math.max(40, body.clientHeight - cap.offsetHeight) };
+    el.setPointerCapture(e.pointerId);
+    el.focus({ preventScroll: true });
+    el.classList.add("held");
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dy = drag.y - e.clientY;
+    drag.moved = Math.max(drag.moved, Math.abs(dy));
+    move(drag.v + (dy / drag.travel) * (o.max() - o.min()));
+  });
+  const end = (e) => {
+    if (!drag) return;
+    const tap = drag.moved < 6;
+    drag = null;
+    el.classList.remove("held");
+    if (e && e.type === "pointerup" && e.pointerType === "touch" && tap) {  // touch has no dblclick
+      if (e.timeStamp - lastTap < 350) { o.reset(); lastTap = 0; } else lastTap = e.timeStamp;
+    }
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    if (!S) return;
+    wheelAcc -= e.deltaY;
+    if (Math.abs(wheelAcc) >= 30) { move(o.get() + Math.sign(wheelAcc) * o.quantum); wheelAcc = 0; }
+  }, { passive: false });
+  el.addEventListener("keydown", (e) => {
+    if (!S) return;
+    const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 5, PageDown: -5 }[e.key];
+    if (d) { e.preventDefault(); move(o.get() + d * (e.shiftKey ? 5 : 1) * o.quantum); }
+    if (e.key === "Home") { e.preventDefault(); o.reset(); }
+  });
+  el.addEventListener("dblclick", () => S && o.reset());
+}
+
+// Position the cap and the lit part of the slot (from the bottom, or from `origin` for a centred fader).
+function placeFader(el, v, lo, hi, origin = lo, text = null) {
+  const f = (x) => clamp((x - lo) / (hi - lo), 0, 1);
+  const pos = f(v), o = f(origin);
+  el.style.setProperty("--pos", pos.toFixed(4));
+  el.style.setProperty("--f-lo", Math.min(o, pos).toFixed(4));
+  el.style.setProperty("--f-hi", Math.max(o, pos).toFixed(4));
+  el.setAttribute("aria-valuemin", lo);
+  el.setAttribute("aria-valuemax", hi);
+  el.setAttribute("aria-valuenow", Math.round(v * 100) / 100);
+  if (text != null) el.setAttribute("aria-valuetext", text);
+}
+
+const wizardFixed = (name) => {
+  if (!(S.calibration && S.calibration.wizard)) return false;
+  popup(name === "occ" ? "occupancy" : "time", "fixed", "set by the calibration scenario", "var(--dim)");
+  return true;
+};
+
+const FADERS = {
   volume: {
-    step(d) {
+    label: "volume", opts: { ticks: 11 },
+    min: () => S.limits.min_volume, max: () => S.limits.max_volume, quantum: 1,
+    get: () => (S.inputs.auto ? clamp(Math.round(S.targets.volume_base + S.inputs.volume_trim), S.limits.min_volume, S.limits.max_volume)
+                               : S.inputs.manual_volume),
+    set(v) {
       const i = S.inputs;
-      if (i.auto) setInputs({ volume_trim: clamp(i.volume_trim + d, -50, 50) });
-      else setInputs({ manual_volume: clamp(i.manual_volume + d, 0, S.limits.max_volume) });
-      const shown = i.auto ? Math.round(S.targets.volume_base + i.volume_trim) : i.manual_volume;
-      popup("volume", clamp(shown, S.limits.min_volume, S.limits.max_volume),
-        i.auto ? `auto ${fmtSigned(i.volume_trim)} trim` : "manual", "var(--blue)");
+      if (i.auto) setInputs({ volume_trim: clamp(Math.round(v - S.targets.volume_base), -50, 50) });
+      else setInputs({ manual_volume: v });
+      popup("volume", v, i.auto ? `auto ${fmtSigned(i.volume_trim)} trim` : "manual", "var(--blue)");
     },
+    reset() { setInputs({ volume_trim: 0 }, 0); popup("volume", "auto", "trim reset", "var(--blue)"); },
   },
   energy: {
-    step(d) {
-      const v = Math.round(clamp(S.inputs.energy_trim + d * 0.02, -0.5, 0.5) * 100) / 100;
+    label: "energy", opts: { ticks: 11, centre: true }, origin: 0,
+    min: () => -0.5, max: () => 0.5, quantum: 0.02,
+    get: () => S.inputs.energy_trim,
+    set(v) {
       setInputs({ energy_trim: v });
       popup("energy", fmtSigned(v, 2), v > 0 ? "more upbeat" : v < 0 ? "more mellow" : "as the dj sees it", "var(--green)");
     },
+    reset() { setInputs({ energy_trim: 0 }, 0); popup("energy", "±0.00", "reset", "var(--green)"); },
   },
   occ: {
-    step(d) {
-      const v = clamp(S.inputs.occupancy + d * 2, 0, 100);
+    label: "occupancy", opts: { ticks: 11 },
+    min: () => 0, max: () => 100, quantum: 1,
+    get: () => S.inputs.occupancy,
+    set(v) {
+      if (wizardFixed("occ")) return;
       setInputs({ occupancy: v, occupancy_enabled: true });
       const how = "space is " + (v > 85 ? "packed" : v > 55 ? "busy" : v > 25 ? "steady" : "quiet");
       popup("occupancy", v + "%", S.mode === "live" ? `override for ${(S.feeds && S.feeds.override_minutes) || 60} min · ${how}` : how, "var(--white)");
     },
+    reset() {},
   },
   time: {
-    step(d) {
-      if (S.mode === "live") { popup("time", fmtHour(S.targets.hour), "live mode follows the venue clock", "var(--orange)"); return; }
-      const base = S.inputs.hour_override ?? S.targets.hour;
-      const v = ((Math.round(base * 4) + d) / 4 + 24) % 24;
+    label: "time", opts: { ticks: 9 },  // a tick every 3 hours
+    min: () => 0, max: () => 23.75, quantum: 0.25,
+    get: () => S.inputs.hour_override ?? S.targets.hour,
+    set(v) {
+      if (wizardFixed("time")) return;
+      if (S.mode === "live") return popup("time", fmtHour(S.targets.hour), "live mode follows the venue clock", "var(--orange)");
       setInputs({ hour_override: v });
-      popup("time", fmtHour(v), "simulated · clock key to reset", "var(--orange)");
+      popup("time", fmtHour(v), "simulated · double-tap or clock key to reset", "var(--orange)");
+    },
+    reset() {
+      if (S.mode === "live") return;
+      setInputs({ hour_override: null }, 0);
+      popup("time", "clock", "following the real time", "var(--orange)");
     },
   },
 };
 
-function initEncoders() {
+function initFaders() {
   $$(".enc").forEach((el) => {
-    const name = el.dataset.enc;
-    const cap = $(".cap", el);
-    let rot = 0, acc = 0, lastY = 0, dragging = false;
-    const turn = (d) => {
-      if (!S || !d) return;
-      if (S.calibration && S.calibration.wizard && (name === "occ" || name === "time")) {
-        return popup(name === "occ" ? "occupancy" : "time", "fixed", "set by the calibration scenario", "var(--dim)");
-      }
-      rot += d * 14;
-      cap.style.setProperty("--rot", rot + "deg");
-      ENC[name].step(d);
-    };
-    let moved = 0, lastTap = 0;
-    el.addEventListener("pointerdown", (e) => { dragging = true; moved = 0; lastY = e.clientY; acc = 0; el.setPointerCapture(e.pointerId); el.focus({ preventScroll: true }); });
-    el.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      acc += lastY - e.clientY; moved += Math.abs(lastY - e.clientY); lastY = e.clientY;
-      const steps = Math.trunc(acc / 7);
-      if (steps) { acc -= steps * 7; turn(steps); }
-    });
-    const end = () => { dragging = false; };
-    el.addEventListener("pointerup", (e) => {
-      end();
-      // touch has no dblclick: a double tap (without turning) resets the knob
-      if (e.pointerType === "touch" && moved < 6) {
-        if (e.timeStamp - lastTap < 350) { resetEncoder(name); lastTap = 0; } else lastTap = e.timeStamp;
-      }
-    });
-    el.addEventListener("pointercancel", end);
-    let wheelAcc = 0;
-    el.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      wheelAcc -= e.deltaY;
-      const steps = Math.trunc(wheelAcc / 30);
-      if (steps) { wheelAcc -= steps * 30; turn(Math.max(-3, Math.min(3, steps))); }
-    }, { passive: false });
-    el.addEventListener("keydown", (e) => {
-      const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
-      if (d) { e.preventDefault(); turn(d * (e.shiftKey ? 5 : 1)); }
-    });
-    el.addEventListener("dblclick", () => resetEncoder(name));
+    const f = FADERS[el.dataset.enc];
+    el.innerHTML = faderHTML(f.label, f.opts);
+    el.title = "drag or scroll · double-click to reset";
+    bindFader(el, f);
   });
 }
 
-function resetEncoder(name) {
-  if (!S) return;
-  if (name === "time") { setInputs({ hour_override: null }, 0); popup("time", "clock", "following the real time", "var(--orange)"); }
-  if (name === "energy") { setInputs({ energy_trim: 0 }, 0); popup("energy", "±0.00", "reset", "var(--green)"); }
-  if (name === "volume") { setInputs({ volume_trim: 0 }, 0); popup("volume", "auto", "trim reset", "var(--blue)"); }
+function renderFaders(s) {
+  const i = s.inputs;
+  $$(".enc").forEach((el) => {
+    const f = FADERS[el.dataset.enc];
+    const v = f.get();
+    const text = { volume: String(v), energy: fmtSigned(v, 2), occ: v + "%", time: fmtHour(v) }[el.dataset.enc];
+    placeFader(el, v, f.min(), f.max(), f.origin ?? f.min(), text);
+  });
+  // dimmed when they have no effect
+  $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
+  $('[data-enc="time"]').classList.toggle("dimmed", i.hour_override == null || s.mode === "live");
+  $('[data-enc="volume"]').classList.toggle("auto", !!i.auto);
 }
 
 let popTimer = null;
@@ -175,7 +241,7 @@ function initKeys() {
   $("#k-occ").addEventListener("click", () => {
     if (S.mode === "live") {
       if ((S.feeds || {}).occupancy_src === "override") return act("/api/override/clear", { key: "occupancy" });
-      return popup("occupancy", S.inputs.occupancy_enabled ? S.inputs.occupancy + "%" : "—", "comes from live data · turn the knob to override", "var(--white)");
+      return popup("occupancy", S.inputs.occupancy_enabled ? S.inputs.occupancy + "%" : "—", "comes from live data · move the fader to override", "var(--white)");
     }
     setInputs({ occupancy_enabled: !S.inputs.occupancy_enabled }, 0);
   });
@@ -213,6 +279,15 @@ function initKeys() {
     act("/api/control", { action: "skip" });
   });
   $("#k-up").addEventListener("click", () => act("/api/control", { action: "up" }));
+  $("#k-listen").addEventListener("click", () => {
+    if (!S) return;
+    if (listenOn(S) && listen.blocked) return syncListen(S);  // the browser was waiting for a tap
+    const next = listenOn(S) ? "off" : "on";
+    try { localStorage.setItem(LISTEN_KEY, next); } catch (e) { /* private mode: applies to this page only */ }
+    listen.pref = next;
+    syncListen(S);
+    popup("listen", next, next === "on" ? "playing on this device, in step with the speakers" : "this device is quiet", "var(--green)");
+  });
   $("#k-down").addEventListener("click", () => act("/api/control", { action: "down" }));
   $("#k-party").addEventListener("click", () => {
     const others = S.speakers.filter((sp) => !sp.in_group).map((sp) => sp.name);
@@ -292,9 +367,10 @@ function render(s, local = false) {
   stateEl.textContent = s.health.speaker_error ? "speaker error" :
     !s.running ? "standby" : s.paused ? "paused" : playing ? "on air · " + fmtTime(st.elapsed) + (st.duration ? " / " + fmtTime(st.duration) : "") : (st.state || "").toLowerCase();
   stateEl.className = "np-state " + (playing ? "live" : s.health.speaker_error ? "c-red" : "c-dim");
-  $("#s-title").textContent = n ? n.title : s.running ? "…" : st.other_source ? (/spotify/i.test(st.uri) ? "spotify is playing" : "another source is playing") : "press ▶ to start the dj";
+  marquee($("#s-title"), n ? n.title : s.running ? "…" : st.other_source ? (/spotify/i.test(st.uri) ? "spotify is playing" : "another source is playing") : "press ▶ to start the dj");
   $("#s-meta").textContent = n
-    ? [n.genre_label, n.bpm ? Math.round(n.bpm) + " bpm" : "bpm ?", n.cached ? "cached" : "stream", n.up || n.down ? `▲${n.up} ▼${n.down}` : ""].filter(Boolean).join(" · ")
+    ? [n.genre_label, n.bpm ? Math.round(n.bpm) + " bpm" : "bpm ?", n.cached ? "cached" : "stream",
+       n.gain_db != null ? "lvl " + fmtSigned(n.gain_db, 1) + " dB" : "", n.up || n.down ? `▲${n.up} ▼${n.down}` : ""].filter(Boolean).join(" · ")
     : s.health.speaker_error || " ";
 
   // meters
@@ -318,9 +394,7 @@ function render(s, local = false) {
 
   setTicker(t.reasons.join("   ·   "));
 
-  // encoders dimmed when they have no effect
-  $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
-  $('[data-enc="time"]').classList.toggle("dimmed", i.hour_override == null || s.mode === "live");
+  renderFaders(s);
 
   // keys
   renderGenreKeys(s);
@@ -339,6 +413,8 @@ function render(s, local = false) {
 
   renderRooms(s);
   renderStrip(s);
+  if (!local) noteSpeakerClock(st);
+  syncListen(s);
 
   const foot = $("#foot");
   if (!foot.classList.contains("bad")) {
@@ -427,9 +503,52 @@ function renderCalibration(s) {
   $("#cv-weather").textContent = WEATHER_GLYPH[sc.weather] || sc.weather;
   $("#cv-occ-bar").style.width = sc.occupancy + "%";
   $("#cv-occ").textContent = `${sc.occupancy}% full`;
-  $("#cv-song").textContent = s.now ? `♪ ${s.now.title} · ${s.now.bpm ? Math.round(s.now.bpm) + " bpm" : ""}` : "♪ …";
+  marquee($("#cv-song"), s.now ? `♪ ${s.now.title}` + (s.now.bpm ? ` · ${Math.round(s.now.bpm)} bpm` : "") : "♪ …");
   $("#cv-vol").textContent = s.targets.volume;
   $("#cv-nrg").textContent = s.targets.energy.toFixed(2);
+}
+
+// ── marquee: text too long for the screen scrolls like a hardware display, pausing at the start of each pass ──
+const MQ_PAUSE = 2200;   // ms held at the start
+const mqWidths = new WeakMap();
+const mqObserver = "ResizeObserver" in window ? new ResizeObserver((entries) => entries.forEach((e) => {
+  const w = Math.round(e.contentRect.width);
+  if (mqWidths.get(e.target) !== w) { mqWidths.set(e.target, w); fitMarquee(e.target); }
+})) : null;
+
+function marquee(el, text) {
+  if (el.dataset.mq === text) return;
+  el.dataset.mq = text;
+  el.innerHTML = '<span class="mq"><span class="mq-t"></span></span>';
+  $(".mq-t", el).textContent = text;
+  if (mqObserver && !el.dataset.mqWatched) { el.dataset.mqWatched = "1"; mqObserver.observe(el); }
+  fitMarquee(el);
+}
+
+function fitMarquee(el) {
+  const inner = $(".mq", el);
+  if (!inner) return;
+  inner.getAnimations().forEach((a) => a.cancel());
+  $$(".mq-t", inner).slice(1).forEach((c) => c.remove());
+  el.classList.remove("scrolling");
+  const first = $(".mq-t", inner);
+  if (reduceMotion || first.offsetWidth <= el.clientWidth + 1) return;
+  // a second copy follows a gap behind the first, so the loop is seamless
+  const fs = parseFloat(getComputedStyle(el).fontSize) || 14;
+  const gap = Math.round(fs * 3);
+  const copy = first.cloneNode(true);
+  copy.setAttribute("aria-hidden", "true");
+  copy.style.marginLeft = gap + "px";
+  inner.append(copy);
+  el.classList.add("scrolling");
+  const dist = first.offsetWidth + gap;
+  const run = (dist / (fs * 2.6)) * 1000;  // speed: 2.6 × font size per second, a few characters a second
+  const total = MQ_PAUSE + run;
+  inner.animate([
+    { transform: "translateX(0)", offset: 0 },
+    { transform: "translateX(0)", offset: MQ_PAUSE / total },
+    { transform: `translateX(${-dist}px)`, offset: 1 },
+  ], { duration: total, iterations: Infinity });
 }
 
 function setTicker(text) {
@@ -456,60 +575,45 @@ function renderGenreKeys(s) {
   });
 }
 
-const pendingOffset = {};  // ip -> offset set on the knob but not yet confirmed by the server
+const pendingOffset = {};  // ip -> offset set on the fader but not yet confirmed by the server
 const offsetTimers = {};
-const DRAG_PX = 18;        // pointer travel per detent
 
 function fmtOffset(o) {
-  return o > 0 ? `+${o}` : o < 0 ? `−${-o}` : "±0";
+  return o > 0 ? `+${o}` : o < 0 ? `−${-o}` : "0";
 }
 
 function roomSteps() {
   return (S && S.limits && S.limits.room_offset_steps) || [-10, -5, 0, 5, 10];
 }
 
-// Detents run from 9 o'clock (-90°) to 3 o'clock (+90°); in-between values (from config.json) sit between them.
-function offsetAngle(o, steps) {
-  const n = steps.length - 1, at = (i) => -90 + (180 * i) / n;
-  if (o <= steps[0]) return at(0);
-  for (let i = 1; i <= n; i++) {
-    if (o <= steps[i]) return at(i - 1) + ((o - steps[i - 1]) / (steps[i] - steps[i - 1])) * (at(i) - at(i - 1));
-  }
-  return at(n);
-}
-
 function nearestStep(o, steps) {
   return steps.reduce((best, v, i) => (Math.abs(v - o) < Math.abs(steps[best] - o) ? i : best), 0);
 }
 
-function knobScale(steps) {
-  const n = steps.length - 1;
-  const ticks = steps.map((_, i) => {
-    const a = (-180 + (180 * i) / n) * Math.PI / 180;  // svg 0° is 3 o'clock; first detent at 9 o'clock
-    const p = (r) => `${(28 + r * Math.cos(a)).toFixed(2)} ${(28 + r * Math.sin(a)).toFixed(2)}`;
-    return `<path class="tick" data-i="${i}" d="M${p(21.5)}L${p(26)}"/>`;
-  }).join("");
-  return `<svg class="rknob-scale" viewBox="0 0 56 56" aria-hidden="true">${ticks}` +
-    `<text x="3" y="41">−</text><text x="53" y="41" text-anchor="end">+</text></svg>`;
+function roomOffset(ip) {
+  return pendingOffset[ip] ?? S.room_offsets?.[ip] ?? 0;
 }
 
-function roomCard(sp) {
+// A channel strip per room: the name and a small LCD sit on a raised (not pressable) white plate; the controls are a level fader
+// (detents relative to the main volume), an on/off switch, a mute switch and a latching "main" key.
+function roomStrip(sp) {
   const steps = roomSteps();
   return `<div class="room" data-ip="${sp.ip}">
-      <button class="room-key" data-act="toggle"><span class="led"></span><b>${esc(sp.name)}</b><small></small></button>
-      <div class="room-plate">
-        <div class="rknob" tabindex="0" role="slider" aria-label="${esc(sp.name)} level relative to the main volume"
-          aria-valuemin="${steps[0]}" aria-valuemax="${steps[steps.length - 1]}"
-          title="level relative to the main volume: drag, scroll or arrow keys; double-click resets">
-          ${knobScale(steps)}<div class="knob"><div class="cap"></div></div>
+      <div class="ch-plate">
+        <div class="ch-head"><span class="led"></span><b>${esc(sp.name)}</b></div>
+        <div class="lcd" aria-hidden="true"><span class="lcd-st"></span><span class="lcd-vol"></span></div>
+      </div>
+      <div class="ch-body">
+        <div class="rfader" tabindex="0" role="slider" aria-label="${esc(sp.name)} level relative to the main volume"
+          title="level vs the main volume: drag, scroll or arrow keys; double-click resets">
+          ${faderHTML("", { marks: steps.map(fmtOffset), centre: steps.includes(0) && steps.length % 2 === 1 })}
         </div>
-        <div class="plate-mid">
-          <div class="lcd" aria-hidden="true"></div>
+        <div class="ch-switches">
+          <div class="sw-row"><button class="mslide on-sw" data-act="toggle" role="switch" aria-label="${esc(sp.name)} on"><span class="thumb"></span></button>
+            <span class="mlab" data-act="toggle">on</span></div>
+          <div class="sw-row"><button class="mslide mute-sw" data-act="mute" role="switch" aria-label="mute ${esc(sp.name)}"><span class="thumb"></span></button>
+            <span class="mlab" data-act="mute">mute</span></div>
           <button class="room-main" data-act="main"><span class="led"></span>main</button>
-        </div>
-        <div class="plate-mute">
-          <button class="mslide" data-act="mute" role="switch" aria-label="mute ${esc(sp.name)}"><span class="thumb"></span></button>
-          <span class="mlab" data-act="mute"><span class="led"></span>mute</span>
         </div>
       </div>
     </div>`;
@@ -524,7 +628,7 @@ function roomAction(sp, what) {
     if (!sp.in_group && !confirm(`Make ${sp.name} the main room? It joins the DJ group, and anything it's playing now will stop.`)) return;
     return send("main");
   }
-  // toggle on/off
+  // on/off
   if (!sp.in_group) {
     if (!confirm(`Add ${sp.name} to the DJ group? Anything it's playing now will stop.`)) return;
     return send("join");
@@ -539,14 +643,13 @@ function roomAction(sp, what) {
 }
 
 function setRoomOffset(ip, value) {
-  const cur = pendingOffset[ip] ?? S.room_offsets?.[ip] ?? 0;
-  if (value === cur) return;
+  if (value === roomOffset(ip)) return;
   pendingOffset[ip] = value;
   renderRooms(S);
   const sp = S.speakers.find((x) => x.ip === ip);
   popup(sp ? sp.name.toLowerCase() : "room", fmtOffset(value), "vs the main volume", "var(--blue)");
   clearTimeout(offsetTimers[ip]);
-  offsetTimers[ip] = setTimeout(async () => {  // one request once the knob settles
+  offsetTimers[ip] = setTimeout(async () => {  // one request once the fader settles
     try {
       render(await api("/api/speakers", { action: "offset", ip, value }));
     } catch (e) {
@@ -557,97 +660,60 @@ function setRoomOffset(ip, value) {
   }, 250);
 }
 
-function initRoomCard(el) {
+function initRoomStrip(el) {
   const ip = el.dataset.ip;
   $$("[data-act]", el).forEach((b) => b.addEventListener("click", () => {
     const sp = S.speakers.find((x) => x.ip === ip);
     if (sp) roomAction(sp, b.dataset.act);
   }));
-  const knob = $(".rknob", el);
-  const step = (d) => {
-    const steps = roomSteps();
-    const cur = pendingOffset[ip] ?? S.room_offsets?.[ip] ?? 0;
-    const i = Math.max(0, Math.min(steps.length - 1, nearestStep(cur, steps) + d));
-    setRoomOffset(ip, steps[i]);
-  };
-  let dragging = false, acc = 0, last = null, moved = 0, lastTap = 0;
-  knob.addEventListener("pointerdown", (e) => {
-    dragging = true; acc = 0; moved = 0; last = [e.clientX, e.clientY];
-    knob.setPointerCapture(e.pointerId); knob.focus({ preventScroll: true });
+  // the fader's value is the detent index; each detent is an offset from room_offset_steps
+  bindFader($(".rfader", el), {
+    min: () => 0, max: () => roomSteps().length - 1, quantum: 1,
+    get: () => nearestStep(roomOffset(ip), roomSteps()),
+    set: (i) => setRoomOffset(ip, roomSteps()[i]),
+    reset: () => setRoomOffset(ip, 0),
   });
-  knob.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - last[0], dy = last[1] - e.clientY;  // right or up turns clockwise
-    last = [e.clientX, e.clientY];
-    acc += Math.abs(dx) > Math.abs(dy) ? dx : dy; moved += Math.abs(dx) + Math.abs(dy);
-    const n = Math.trunc(acc / DRAG_PX);
-    if (n) { acc -= n * DRAG_PX; step(n); }
-  });
-  knob.addEventListener("pointerup", (e) => {
-    dragging = false;
-    if (e.pointerType === "touch" && moved < 6) {  // touch has no dblclick: a double tap resets
-      if (e.timeStamp - lastTap < 350) { setRoomOffset(ip, 0); lastTap = 0; } else lastTap = e.timeStamp;
-    }
-  });
-  knob.addEventListener("pointercancel", () => { dragging = false; });
-  let wheelAcc = 0;
-  knob.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    wheelAcc -= e.deltaY;
-    if (Math.abs(wheelAcc) >= 40) { step(Math.sign(wheelAcc)); wheelAcc = 0; }
-  }, { passive: false });
-  knob.addEventListener("keydown", (e) => {
-    const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
-    if (d) { e.preventDefault(); step(d); }
-    if (e.key === "Home" || e.key === "0") { e.preventDefault(); setRoomOffset(ip, 0); }
-  });
-  knob.addEventListener("dblclick", () => setRoomOffset(ip, 0));
 }
 
 function renderRooms(s) {
   const wrap = $("#room-keys");
   if (!s.speakers.length) {
-    wrap.innerHTML = `<div class="room empty"><b>no speakers found yet — press scan</b></div>`;
+    wrap.innerHTML = `<div class="room empty"><b>no speakers found yet · press scan</b></div>`;
     wrap.dataset.layout = "";
     return;
   }
   const steps = roomSteps();
   const layout = JSON.stringify([s.speakers.map((sp) => [sp.ip, sp.name]), steps]);
-  if (wrap.dataset.layout !== layout) {  // rebuild only when rooms change, so a knob mid-turn isn't replaced
+  if (wrap.dataset.layout !== layout) {  // rebuild only when rooms change, so a fader mid-drag isn't replaced
     wrap.dataset.layout = layout;
-    wrap.innerHTML = s.speakers.map(roomCard).join("");
-    $$(".room", wrap).forEach(initRoomCard);
+    wrap.innerHTML = s.speakers.map(roomStrip).join("");
+    $$(".room", wrap).forEach(initRoomStrip);
   }
   s.speakers.forEach((sp) => {
     const el = $(`.room[data-ip="${sp.ip}"]`, wrap);
     if (!el) return;
     const vol = s.volumes?.[sp.ip];
-    const off = pendingOffset[sp.ip] ?? s.room_offsets?.[sp.ip] ?? 0;
+    const off = roomOffset(sp.ip);
     el.classList.toggle("main", sp.coordinator);
     el.classList.toggle("off", !sp.in_group);
     el.classList.toggle("muted", !!sp.muted);
-    const key = $(".room-key", el);
-    $(".led", key).className = "led" + (sp.in_group ? " on" : "") + (sp.coordinator ? " green" : "");
-    key.title = sp.in_group ? "tap to switch this room off" : "tap to add this room";
-    $("small", key).textContent = (sp.muted ? "muted" : sp.coordinator ? "main" : sp.in_group ? "synced" : "off")
-      + (vol != null && sp.in_group ? " · vol " + vol : "");
+    $(".ch-head .led", el).className = "led" + (sp.in_group ? " on" : "") + (sp.coordinator ? " green" : "");
+    $(".lcd-st", el).textContent = !sp.in_group ? "off" : sp.muted ? "muted" : sp.coordinator ? "main" : "synced";
+    $(".lcd-vol", el).textContent = vol != null && sp.in_group ? "vol " + vol : "";
+    const on = $(".on-sw", el);
+    on.classList.toggle("on", sp.in_group);
+    on.setAttribute("aria-checked", String(sp.in_group));
+    on.title = sp.in_group ? "switch this room off" : "add this room to the DJ group";
+    const mute = $(".mute-sw", el);
+    mute.classList.toggle("on", !!sp.muted);
+    mute.setAttribute("aria-checked", String(!!sp.muted));
     const mainKey = $(".room-main", el);
     mainKey.classList.toggle("is-main", sp.coordinator);
     mainKey.title = sp.coordinator ? "main room: leads the group and holds the queue" : "make this the main room";
     $(".led", mainKey).className = "led" + (sp.coordinator ? " on green" : "");
-    const knob = $(".rknob", el);
-    $(".cap", knob).style.setProperty("--rot", offsetAngle(off, steps) + "deg");
-    const ni = nearestStep(off, steps);
-    $$(".tick", knob).forEach((t) => t.classList.toggle("on", +t.dataset.i === ni));
-    knob.setAttribute("aria-valuenow", off);
-    knob.setAttribute("aria-valuetext", fmtOffset(off) + " vs main");
-    const lcd = $(".lcd", el);
-    lcd.textContent = fmtOffset(off);
-    lcd.classList.toggle("zero", off === 0);
-    const ms = $(".mslide", el);
-    ms.classList.toggle("on", !!sp.muted);
-    ms.setAttribute("aria-checked", sp.muted ? "true" : "false");
-    $(".mlab .led", el).className = "led" + (sp.muted ? " on red" : "");
+    const fader = $(".rfader", el), ni = nearestStep(off, steps);
+    placeFader(fader, ni, 0, steps.length - 1, steps.includes(0) ? steps.indexOf(0) : 0, fmtOffset(off) + " vs main");
+    $$(".f-tick", fader).forEach((t) => t.classList.toggle("on", +t.dataset.k === ni));
   });
   const all = s.speakers.every((sp) => sp.in_group);
   $("#k-party").classList.toggle("hot", all && s.speakers.length > 1);
@@ -672,6 +738,96 @@ function renderStrip(s) {
     log.innerHTML = s.events.map((e) => `<li><b>${e.t}</b>${esc(e.msg)}</li>`).join("");
   }
 }
+
+// ── listen: play what the speakers are playing on this device ──────────────
+// The speakers stream from this server's /media URLs, so the browser can fetch the same file and follow
+// the speaker's position. On by default in demo mode; the key's choice is remembered per device.
+const LISTEN_KEY = "o3dj.listen";
+const listen = { audio: new Audio(), pref: null, blocked: false, starting: false, told: false, uri: null, start: null, rtt: 0 };
+listen.audio.preload = "auto";
+listen.audio.preservesPitch = true;  // speed nudges below shouldn't bend the pitch
+try { listen.pref = localStorage.getItem(LISTEN_KEY); } catch (e) { /* storage blocked */ }
+
+function listenOn(s) { return listen.pref ? listen.pref === "on" : s.mode !== "live"; }
+function mediaPath(uri) {
+  try { const u = new URL(uri); return u.pathname.startsWith("/media/") ? u.pathname : null; } catch (e) { return null; }
+}
+
+// The speaker's clock, as "when (on this device's clock) the current track started". Each status reading gives
+// an estimate: the speaker position, plus how old the reading was on the server, plus half the request time.
+// Readings can only run late (Sonos rounds down to whole seconds), so the earliest start seen is the best one;
+// a big jump means the speaker really moved (skip, seek, stall) and the estimate starts over.
+function noteSpeakerClock(st) {
+  if (st.state !== "PLAYING" || !st.uri) { listen.uri = null; listen.start = null; return; }
+  const pos = st.position ?? (st.elapsed || 0) + 0.5;
+  const est = performance.now() / 1000 - (pos + (st.age || 0) + listen.rtt / 2);
+  if (st.uri !== listen.uri || listen.start == null || Math.abs(est - listen.start) > 2) {
+    listen.uri = st.uri;
+    listen.start = est;
+  } else {
+    listen.start = Math.min(listen.start, est);
+  }
+}
+function listenTarget() { return listen.start == null ? 0 : performance.now() / 1000 - listen.start; }
+
+function syncListen(s) {
+  const a = listen.audio, st = s.status || {};
+  const on = listenOn(s);
+  const path = s.running && !s.paused && st.state === "PLAYING" ? mediaPath(st.uri) : null;  // null: not our music
+  // On only by the demo default: a page in the background (another tab, a hidden window) stays quiet, so
+  // a forgotten tab doesn't play over the one you're using. Switched on by hand: keeps playing (e.g. phone locked).
+  const background = document.hidden && listen.pref !== "on";
+  if (!on || !path || background) {
+    if (!a.paused) a.pause();
+    listen.blocked = false;
+    return renderListenKey(on);
+  }
+  // This device is one more speaker in the group: it follows the group's level (so fades and auto volume are
+  // heard), without the main room's own offset or mute. The device volume sets the overall level.
+  const main = s.speakers.find((sp) => sp.coordinator);
+  const vol = main && s.volumes ? s.volumes[main.ip] : null;
+  a.volume = vol != null ? clamp((vol - (s.room_offsets?.[main.ip] || 0)) / s.limits.max_volume, 0, 1) : 1;
+  if (a.dataset.path !== path) {
+    a.dataset.path = path;
+    a.src = path;
+    a.playbackRate = 1;
+    a.addEventListener("loadedmetadata", () => { a.currentTime = listenTarget(); }, { once: true });
+  } else if (a.readyState >= 2 && !a.seeking && !a.paused) {
+    // Stay in step without audible jumps: speed up or slow down a few percent for small drift, and only
+    // re-seek when far off. Real Sonos positions are only accurate to about a second, so allow more slack there.
+    const off = listenTarget() - a.currentTime;  // > 0: this device is behind the speaker
+    const [slack, far] = s.live ? [0.5, 2.5] : [0.05, 1.0];
+    if (Math.abs(off) > far) { a.currentTime = listenTarget(); a.playbackRate = 1; }
+    else if (Math.abs(off) > slack) a.playbackRate = 1 + clamp(off * 0.3, -0.06, 0.06);
+    else a.playbackRate = 1;
+  }
+  if (a.paused && !listen.starting) {
+    listen.starting = true;
+    a.play().then(() => { listen.blocked = false; }).catch((e) => {
+      if (e.name !== "NotAllowedError") return;
+      listen.blocked = true;  // browsers only start sound after a tap; the next tap anywhere starts it
+      if (!listen.told) { listen.told = true; popup("listen", "tap", "tap anywhere to hear it on this device", "var(--green)"); }
+    }).finally(() => { listen.starting = false; renderListenKey(listenOn(S)); });
+  }
+  renderListenKey(on);
+}
+
+function renderListenKey(on) {
+  const sw = $("#k-listen"), a = listen.audio;
+  sw.classList.toggle("on", on);
+  sw.setAttribute("aria-checked", String(on));
+  sw.classList.toggle("busy", on && listen.blocked);
+  $(".side-label .led").className = "led" + (on && !a.paused ? " on green" : on && listen.blocked ? " on" : "");
+  sw.title = !on ? "listen on this device, in step with the speakers"
+    : listen.blocked ? "tap to start listening on this device" : "listening on this device · slide to turn off";
+}
+
+document.addEventListener("visibilitychange", () => S && syncListen(S));
+for (const ev of ["click", "touchend", "keydown"]) {
+  document.addEventListener(ev, () => { if (listen.blocked && S) syncListen(S); }, true);
+}
+listen.audio.addEventListener("playing", () => S && renderListenKey(listenOn(S)));
+listen.audio.addEventListener("pause", () => S && renderListenKey(listenOn(S)));
 
 // ── tape reels: left pack unwinds onto the right as the track plays ──────────
 const REEL = { l: [27, 28], r: [93, 28], guideL: [16, 64], guideR: [104, 64], gr: 2.4, core: 6.5, full: 20 };
@@ -726,7 +882,10 @@ function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&am
 // ── boot ────────────────────────────────────────────────────────────────
 async function poll() {
   try {
-    render(await api("/api/state"));
+    const t0 = performance.now();
+    const data = await api("/api/state");
+    listen.rtt = (performance.now() - t0) / 1000;
+    render(data);
   } catch (e) {
     const f = $("#foot");
     f.textContent = "⚠ can't reach the dj server — is run.py still going?";
@@ -738,7 +897,7 @@ async function poll() {
 // iOS Safari only shows :active pressed states if the page listens for touches
 document.addEventListener("touchstart", () => {}, { passive: true });
 
-initEncoders();
+initFaders();
 initKeys();
 poll();
 setInterval(poll, 1500);
