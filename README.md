@@ -118,7 +118,8 @@ the upcoming picks are replaced within a couple of seconds and the current song 
 - **Queue safety**: the DJ never removes the playing track or the next one (the Sonos pre-loads it), so mood changes
   take effect from the track after next. If the speaker jumps back to an old track, it skips forward to new music instead of replaying.
 
-The laptop has to stay on and awake (macOS: `caffeinate -i python3 run.py`), and
+The laptop has to stay on and awake. `./dj.sh start` runs the DJ in the background under `caffeinate`, independent of any
+terminal window (`./dj.sh status`, `log`, `restart`, `stop`; log in `data/server.log`). It also has to
 allow incoming connections if the firewall asks, so the speakers can fetch cached files.
 
 ## Adding music
