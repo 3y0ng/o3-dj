@@ -59,7 +59,7 @@ function setInputs(patch, delay = 140) {
   if (S) render(S, true);
 }
 
-// ── encoders (endless, like the OP-1) ─────────────────────────────
+// ── encoders ──────────────────────────────────────────────────────
 const ENC = {
   volume: {
     step(d) {
@@ -97,18 +97,34 @@ const ENC = {
   },
 };
 
+// The knobs point at the shared setting, so every device shows the same position.
+// Trims sit at 12 o'clock when reset; absolute values sweep 7 to 5 o'clock.
+const KNOB_SWEEP = 150;
+function knobAngles(s) {
+  const i = s.inputs, t = s.targets, L = s.limits;
+  const span = (v, lo, hi) => (clamp((v - lo) / (hi - lo), 0, 1) * 2 - 1) * KNOB_SWEEP;
+  return {
+    volume: i.auto ? span(i.volume_trim, -20, 20) : span(i.manual_volume, L.min_volume, L.max_volume),
+    energy: span(i.energy_trim, -0.3, 0.3),
+    occ: span(i.occupancy, 0, 100),
+    time: span(i.hour_override ?? t.hour, 0, 24),
+  };
+}
+
+function renderKnobs(s) {
+  const a = knobAngles(s);
+  $$(".enc").forEach((el) => $(".cap", el).style.setProperty("--rot", a[el.dataset.enc] + "deg"));
+}
+
 function initEncoders() {
   $$(".enc").forEach((el) => {
     const name = el.dataset.enc;
-    const cap = $(".cap", el);
-    let rot = 0, acc = 0, lastY = 0, dragging = false;
+    let acc = 0, lastY = 0, dragging = false;
     const turn = (d) => {
       if (!S || !d) return;
       if (S.calibration && S.calibration.wizard && (name === "occ" || name === "time")) {
         return popup(name === "occ" ? "occupancy" : "time", "fixed", "set by the calibration scenario", "var(--dim)");
       }
-      rot += d * 14;
-      cap.style.setProperty("--rot", rot + "deg");
       ENC[name].step(d);
     };
     let moved = 0, lastTap = 0;
@@ -253,6 +269,7 @@ function render(s, local = false) {
   drawTape(s.running && st.duration ? Math.min(1, (st.elapsed || 0) / st.duration) : s.running ? 0.5 : 0);
   $("#led-power").className = "led" + (playing ? " on" : s.running ? " on green" : "");
   $("#mode-tag").textContent = s.live ? "live" : "mock";
+  renderKnobs(s);
 
   // status bar
   $("#s-clock").textContent = fmtHour(t.hour) + (t.clock ? "" : "*");
