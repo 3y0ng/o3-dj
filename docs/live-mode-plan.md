@@ -1,6 +1,6 @@
 # Live mode plan
 
-The DJ today is a **demo**: weather and occupancy are manual keys and knobs. **Live mode** takes them from real data.
+The DJ today is a **demo**: weather and occupancy are manual keys and faders. **Live mode** takes them from real data.
 A DEMO / LIVE slide switch on the controller changes between the two.
 
 Constraint: **no changes to O3's database.** Supabase is read-only from the DJ.
@@ -9,7 +9,7 @@ Constraint: **no changes to O3's database.** Supabase is read-only from the DJ.
 
 | Input | Live source | Notes |
 |---|---|---|
-| Time of day | the venue's clock | from `venues.<code>.timezone`; the time knob is disabled in live mode |
+| Time of day | the venue's clock | from `venues.<code>.timezone`; the time fader is disabled in live mode |
 | Weather | Open-Meteo, fetched by the DJ every 10 min | free, no key; venue lat/lon from `venues` |
 | Occupancy | O3 Supabase (`o3-flutter-app` production), read-only, every 5 min | see below |
 
@@ -57,7 +57,7 @@ Put these in `config.local.json` (gitignored; see `config.local.example.json`) o
 ## Behaviour
 
 - **Layered inputs:** each value is a staff override if one is active, otherwise the live value, otherwise a neutral default. `brain.py` is unchanged.
-- **Overrides:** in live mode, pressing a weather key or turning the occupancy knob overrides live data for `live.override_minutes` (60),
+- **Overrides:** in live mode, pressing a weather key or moving the occupancy fader overrides live data for `live.override_minutes` (60),
   then hands back. Shown on screen as `override · 42m`.
 - **Stale data:** if a feed hasn't updated for `live.stale_after_minutes` (15), the DJ falls back to neutral (clear weather,
   occupancy ignored) and shows `stale`. The music never depends on the feeds.

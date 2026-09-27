@@ -68,6 +68,12 @@ Still open:
 
 ## 2. Tuning (from how it was used)
 
+- [x] **Loudness normalisation** (28 Sep 2026): cached files are levelled to −16 LUFS (`normalise` in config.json).
+  The first 25 Chillify tracks measured −13.3…−15.5 LUFS, so the target keeps the tuned volumes about where they were.
+- [ ] Level tracks that play before they're cached (the server passes the stream through as it is), e.g. per-track volume compensation.
+- [ ] Level `library/<genre>/` files too (into the cache, leaving the originals alone).
+- [ ] Listen for the limiter on quiet tracks boosted by several dB; lower `max_boost_db` if they sound squashed.
+
 - [x] One-time calibration walk-through (6 scenarios, adjust by ear, fit volume/energy factors per venue).
 - [x] Per-venue volume cap (Newtown 75; the old global 60 was too quiet for a multi-floor venue).
 - [x] Venue auto-detected from the Sonos household ID (Newtown recorded), falling back to public IP.
@@ -120,6 +126,23 @@ All of these only need to POST to `/api/inputs`.
 - [ ] Analytics: what played when, skips/downvotes by daypart, hours of music per room; later, correlate with dwell time/sessions.
 
 ## 6. Housekeeping
+
+- [x] Controller (28 Sep 2026): knobs replaced by faders (drag/scroll, relative to where you grab); rooms are channel strips
+  with the name printed on the panel and an **on** switch instead of a room-sized button; long song names scroll on the screen.
+  Mock rooms now use the real names ("Mock 2nd Floor Painting Corner") so layouts get tested with long names.
+- [x] **listen** switch on the unit's left side (28 Sep 2026): hear what's playing on the controller device, synced to the speaker's position
+  On by default in demo mode. Fixed the same day: it re-seeked back 3 s whenever the (2 s old, whole-second) status lagged,
+  which sounded like an echo; status now carries a precise position and its age, and small drift is corrected by speed.
+  The main room's mute / offset no longer silences it.
+  A page that's on only by the demo default goes quiet while it's in the background (another tab or window), so a
+  forgotten tab can't keep playing; switched on by hand, it keeps playing (phone locked).
+  Mock songs now last their real length (they were cut at `mock_track_seconds`, 45 s, which sounded like random skips).
+- [ ] listen on real Sonos: positions are whole seconds and the speaker's own buffering delay is unknown; check by ear
+  standing next to a speaker, and add a fixed latency offset if the device is consistently early.
+- [ ] listen: a Sonos crossfade isn't reproduced (the device cuts to the next track); only our own music can be heard, not Spotify.
+- [ ] Re-take `docs/screenshot.png` (it still shows the knob version).
+- [ ] Scrolling the page with a mouse wheel or trackpad over a fader moves the fader (same as the old knobs). Fine on phones
+  (touch scrolls the page); consider ignoring wheel events for ~300 ms after the page scrolls.
 
 - [x] Tests for queue edge cases (edit near the end, stop vs stall, reset recovery, adopt after restart).
 - [ ] Mock doesn't simulate crossfade/TRANSITIONING; add it if transition bugs show up again.

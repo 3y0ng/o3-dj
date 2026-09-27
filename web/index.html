@@ -17,6 +17,11 @@
   <section class="device" id="device" aria-label="O3 DJ controller">
     <div class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 
+    <!-- listen: a slide switch on the unit's left side face, next to the speaker -->
+    <button class="side-switch" id="k-listen" role="switch" aria-checked="false" aria-label="listen on this device"
+            title="listen on this device, in step with the speakers"><span class="ss-slot"><span class="ss-nub"></span></span></button>
+    <label class="side-label" for="k-listen"><span class="led"></span>listen</label>
+
     <!-- left: grille + wordmark -->
     <div class="brand">
       <div class="grille" aria-hidden="true"></div>
@@ -98,13 +103,13 @@
       </div>
     </div>
 
-    <!-- encoders -->
+    <!-- faders: drag (or scroll) up and down, like a mixer -->
     <div class="encoders">
-      <div class="enc" data-enc="volume"  data-color="blue"   tabindex="0" role="slider" aria-label="volume"><div class="knob"><div class="cap"></div></div><span>volume</span></div>
-      <div class="enc" data-enc="energy"  data-color="green"  tabindex="0" role="slider" aria-label="energy"><div class="knob"><div class="cap"></div></div><span>energy</span></div>
-      <div class="enc" data-enc="occ"     data-color="white"  tabindex="0" role="slider" aria-label="occupancy"><div class="knob"><div class="cap"></div></div><span>occupancy</span></div>
-      <div class="enc" data-enc="time"    data-color="orange" tabindex="0" role="slider" aria-label="time of day"><div class="knob"><div class="cap"></div></div><span>time</span></div>
-      <!-- demo: the knobs set the atmosphere · live: occupancy + time come from live data -->
+      <div class="enc" data-enc="volume" data-color="blue"   tabindex="0" role="slider" aria-label="volume"></div>
+      <div class="enc" data-enc="energy" data-color="green"  tabindex="0" role="slider" aria-label="energy"></div>
+      <div class="enc" data-enc="occ"    data-color="white"  tabindex="0" role="slider" aria-label="occupancy"></div>
+      <div class="enc" data-enc="time"   data-color="orange" tabindex="0" role="slider" aria-label="time of day"></div>
+      <!-- demo: the faders set the atmosphere · live: occupancy + time come from live data -->
       <div class="knob-panel">
       <div class="panel-row">
       <div class="slide-wrap">
@@ -159,14 +164,14 @@
       </div>
     </div>
 
-    <!-- rooms keyboard -->
+    <!-- rooms: one channel strip per speaker -->
     <div class="rooms">
       <div class="rooms-head">
         <h3>rooms</h3>
         <button class="mini" id="k-party" title="join every speaker into one synced group">party mode</button>
         <button class="mini" id="k-scan" title="look for speakers again">scan</button>
       </div>
-      <div class="keyboard" id="room-keys"></div>
+      <div class="channels" id="room-keys"></div>
     </div>
   </section>
 

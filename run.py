@@ -51,6 +51,8 @@ def main():
     library.refresh()
     state_file = config.DATA / ("mock_state.json" if args.mock else "state.json")
     dj = DJ(cfg, player, library, Cache(cfg), Meta(), state_file=state_file)
+    if args.mock:  # mock tracks last as long as the real songs (measured by the prefetcher), for listening
+        player.duration_of = lambda uri: dj.meta.duration(dj.uri_map.get(uri))
 
     threading.Thread(target=dj.run, daemon=True, name="dj").start()
     threading.Thread(target=dj.health_loop, daemon=True, name="health").start()

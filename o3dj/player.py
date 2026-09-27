@@ -233,6 +233,8 @@ class SonosPlayer:
                 "index": int(info.get("playlist_position") or 0) - 1,
                 "uri": info.get("uri", ""),
                 "elapsed": _secs(info.get("position")),
+                # Sonos reports whole seconds; the true position is somewhere in the next second
+                "position": _secs(info.get("position")) + 0.5, "read_at": time.time(),
                 "duration": _secs(info.get("duration")),
                 "queue_size": c.queue_size,
             }
@@ -256,12 +258,14 @@ class SonosPlayer:
 
 
 class MockPlayer:
-    """Pretend speakers. Tracks 'play' for mock_track_seconds each."""
+    """Pretend speakers. Each track 'plays' for its real length when `duration_of(uri)` knows it
+    (set by run.py, so listening on a device hears whole songs), otherwise for track_seconds."""
     live = False
 
-    def __init__(self, track_seconds=45):
+    def __init__(self, track_seconds=45, duration_of=None):
         self.track_seconds = track_seconds
-        names = ["Mock Cafe Entrance", "Mock Office", "Mock Mezzanine", "Mock 2nd Floor", "Mock Storage"]
+        self.duration_of = duration_of
+        names = ["Mock Cafe Entrance", "Mock Office", "Mock Mezzanine", "Mock 2nd Floor Painting Corner", "Mock 2nd Floor Storage Room"]
         self.rooms = {f"10.0.0.{i + 10}": {"name": n, "volume": 25, "mute": False} for i, n in enumerate(names)}
         self.anchor_ip = "10.0.0.11"
         self.group = {self.anchor_ip}
@@ -311,11 +315,19 @@ class MockPlayer:
             return time.monotonic() - self.started_at
         return self.paused_elapsed
 
+    def _length(self):
+        uri = self.queue[self.index].get("uri") if 0 <= self.index < len(self.queue) else None
+        try:
+            known = self.duration_of(uri) if self.duration_of and uri else None
+        except Exception:
+            known = None
+        return known or self.track_seconds
+
     def _advance(self):
-        while self.state == "PLAYING" and self._elapsed() >= self.track_seconds:
+        while self.state == "PLAYING" and self._elapsed() >= (length := self._length()):
             if self.index + 1 < len(self.queue):
                 self.index += 1
-                self.started_at += self.track_seconds
+                self.started_at += length
             else:
                 self.state, self.paused_elapsed = "STOPPED", 0
 
@@ -386,7 +398,8 @@ class MockPlayer:
             cur = self.queue[self.index] if 0 <= self.index < len(self.queue) else {}
             # duration 0, like a real Sonos reports for these http streams
             return {"state": self.state, "index": self.index, "uri": cur.get("uri", ""),
-                    "elapsed": int(self._elapsed()), "duration": 0,
+                    "elapsed": int(self._elapsed()), "position": round(self._elapsed(), 3),
+                    "read_at": time.time(), "duration": 0,
                     "queue_size": len(self.queue)}
 
     def volumes(self):

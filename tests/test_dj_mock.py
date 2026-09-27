@@ -43,6 +43,7 @@ class FakeCache:
     def name_for(self, t): return t.id.replace(":", "_") + ".mp3"
     def touch(self, t): pass
     def usage_mb(self): return 0
+    def gain(self, t): return None
 
 
 class FakeMeta:
@@ -389,23 +390,23 @@ def test_make_main_keeps_music_playing_and_survives_restart(tmp_path):
 
 def test_switching_off_main_room_hands_over_and_music_carries_on(dj):
     started(dj)
-    office, storage = ip_of(dj, "Mock Office"), ip_of(dj, "Mock Storage")
+    office, storage = ip_of(dj, "Mock Office"), ip_of(dj, "Mock 2nd Floor Storage Room")
     dj.speaker_action("join", storage)
     now = dj.now_id
     dj.speaker_action("leave", office)
     rooms = {s["name"]: s for s in dj.speakers}
-    assert rooms["Mock Storage"]["coordinator"] and not rooms["Mock Office"]["in_group"]
+    assert rooms["Mock 2nd Floor Storage Room"]["coordinator"] and not rooms["Mock Office"]["in_group"]
     dj.tick(1)
     assert dj.status["state"] == "PLAYING" and dj.now_id == now and not dj.paused
 
 
 def test_switching_off_main_room_prefers_the_configured_home_room(tmp_path):
     d = started(make_dj(tmp_path))
-    for n in ("Mock 2nd Floor", "Mock Storage"):
+    for n in ("Mock 2nd Floor Painting Corner", "Mock 2nd Floor Storage Room"):
         d.speaker_action("join", ip_of(d, n))
-    d.cfg = dict(d.cfg, coordinator_ip=ip_of(d, "Mock Storage"))
+    d.cfg = dict(d.cfg, coordinator_ip=ip_of(d, "Mock 2nd Floor Storage Room"))
     d.speaker_action("leave", ip_of(d, "Mock Office"))
-    assert d.player.anchor_ip == ip_of(d, "Mock Storage")  # not 2nd Floor, though it sorts first
+    assert d.player.anchor_ip == ip_of(d, "Mock 2nd Floor Storage Room")  # not 2nd Floor, though it sorts first
 
 
 def test_switching_off_the_only_room_pauses(dj):
@@ -418,18 +419,18 @@ def test_switching_off_the_only_room_pauses(dj):
 def test_room_offset_is_relative_to_main_volume_snapped_and_saved(tmp_path):
     player = MockPlayer(track_seconds=1000)
     d = started(make_dj(tmp_path, player))
-    storage = ip_of(d, "Mock Storage")
+    storage = ip_of(d, "Mock 2nd Floor Storage Room")
     d.speaker_action("join", storage)
     d.speaker_action("offset", storage, -6)  # snaps to the nearest knob detent
-    assert d.room_offset("Mock Storage") == -5
+    assert d.room_offset("Mock 2nd Floor Storage Room") == -5
     target = d.targets["volume"]
     assert player.volumes()[storage] == max(d.cfg["min_volume"], target - 5)
     assert player.volumes()[player.anchor_ip] == target
     d.speaker_action("offset", storage, 99)
-    assert d.room_offset("Mock Storage") == 10
+    assert d.room_offset("Mock 2nd Floor Storage Room") == 10
     assert d.snapshot()["room_offsets"][storage] == 10
     assert d.snapshot()["limits"]["room_offset_steps"] == [-10, -5, 0, 5, 10]
-    assert make_dj(tmp_path, player).room_offset("Mock Storage") == 10
+    assert make_dj(tmp_path, player).room_offset("Mock 2nd Floor Storage Room") == 10
 
 
 def test_room_offset_from_controller_overrides_config(tmp_path):
@@ -455,3 +456,28 @@ def test_mute_keeps_room_in_group_and_leaves_volume_alone(dj):
 def test_unknown_speaker_is_rejected(dj):
     with pytest.raises(ValueError):
         dj.speaker_action("main", "10.9.9.9")
+
+
+def test_snapshot_gives_listening_devices_a_precise_speaker_position(dj):
+    """The listen switch places this device's playback from position + age; a stale or whole-second
+    reading made it jump back and replay (heard as an echo)."""
+    dj.play()
+    time.sleep(0.3)
+    dj.refresh_status()
+    time.sleep(0.2)
+    st = dj.snapshot()["status"]
+    assert isinstance(st["position"], float) and 0.2 < st["position"] < 1.0
+    assert 0.15 < st["age"] < 1.0 and "read_at" not in st
+    assert "read_at" in dj.status  # the snapshot works on a copy
+
+
+def test_mock_tracks_last_their_real_length_when_known():
+    lengths = {"a": 0.3, "b": None}  # b unknown: falls back to track_seconds
+    p = MockPlayer(track_seconds=0.6, duration_of=lambda uri: lengths.get(uri))
+    p.start([{"uri": "a"}, {"uri": "b"}, {"uri": "c"}])
+    time.sleep(0.4)
+    assert p.status()["uri"] == "b"
+    time.sleep(0.4)
+    assert p.status()["uri"] == "b"  # 0.6 s fallback, not 0.3
+    time.sleep(0.35)
+    assert p.status()["uri"] == "c"

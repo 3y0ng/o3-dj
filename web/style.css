@@ -30,7 +30,7 @@
 html, body { margin: 0; }
 [hidden] { display: none !important; }  /* flex/grid rules below must not un-hide things */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-button, .enc, .room { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+button, .enc, .rfader { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 body {
   min-height: 100vh;
   background:
@@ -81,6 +81,41 @@ button, input, select { font: inherit; color: inherit; }
 .screws i:nth-child(2) { top: 10px; right: 10px; }
 .screws i:nth-child(3) { bottom: 10px; left: 10px; }
 .screws i:nth-child(4) { bottom: 10px; right: 10px; }
+
+/* listen: a slide switch in the unit's left side face. The black nub sticks out past the edge and
+   slides along a slot cut into the side (down = on); its label is printed on the top face beside it. */
+.side-switch {
+  position: absolute; left: -12px; top: 96px; width: 30px; height: 64px; z-index: 1;
+  border: 0; padding: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.ss-slot {
+  position: absolute; left: 5px; top: 5px; width: 7px; height: 54px; border-radius: 3px 0 0 3px;
+  background: linear-gradient(90deg, #111214, #2e3033);
+  box-shadow: inset 1px 0 2px rgba(0,0,0,.9), 0 -1px 0 rgba(255,255,255,.5), 0 1px 0 rgba(0,0,0,.12);
+}
+.ss-slot::before { /* glow down the slot when on */
+  content: ""; position: absolute; inset: 4px 1px; border-radius: 2px; opacity: 0; transition: opacity .3s;
+  background: linear-gradient(180deg, transparent, rgba(47,211,127,.7));
+}
+.side-switch.on .ss-slot::before { opacity: 1; }
+.ss-nub {
+  position: absolute; left: -5px; top: 3px; width: 12px; height: 20px; border-radius: 4px 2px 2px 4px;
+  background:
+    repeating-linear-gradient(180deg, rgba(255,255,255,.1) 0 1px, transparent 1px 3px) 2px 3px / 6px 14px no-repeat,
+    linear-gradient(90deg, #505357 0%, #26282b 45%, #111214 100%);
+  box-shadow: -2px 3px 4px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.18);
+  transition: top .25s cubic-bezier(.3, 1.4, .5, 1);
+}
+.side-switch.on .ss-nub { top: 31px; }
+.side-switch:active .ss-nub { box-shadow: -1px 2px 2px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.18); }
+.side-switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+.side-label {
+  position: absolute; left: 11px; top: 96px; height: 64px; display: flex; align-items: center; gap: 6px;
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 9.5px; letter-spacing: .14em; color: var(--ink-soft); cursor: pointer; user-select: none;
+}
+.side-label .led { width: 5px; height: 5px; }
+.side-switch.on + .side-label { color: var(--ink); }
 
 h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing: .06em; }
 
@@ -151,6 +186,10 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .np-state { font-size: 2.2cqw; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-state.live { color: var(--green); }
 .np-title { font-size: 4.1cqw; line-height: 1.12; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* long text scrolls (app.js marquee): hard edges, like a real display */
+.mq { display: inline-block; white-space: nowrap; will-change: transform; }
+.mq-t { display: inline-block; }
+.scrolling { text-overflow: clip !important; }
 .np-meta { font-size: 2.3cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: .8cqw; }
 
 .meter { display: grid; grid-template-columns: 5.2cqw 1fr 8.5cqw; align-items: center; gap: 1.6cqw; font-size: 2.2cqw; }
@@ -181,37 +220,55 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .pop-val { font-size: 13cqw; line-height: 1.05; font-weight: 600; }
 .pop-sub { font-size: 2.4cqw; color: var(--dim); }
 
-/* ── encoders ──────────────────────────────────────────────── */
-.encoders { grid-area: enc; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-content: start; padding-top: 6px; }
-.enc { display: flex; flex-direction: column; align-items: center; gap: 9px; cursor: ns-resize; touch-action: none; outline: none; user-select: none; }
-.enc span { font-size: 11px; color: var(--ink-soft); letter-spacing: .05em; }
-.enc .knob {
-  width: 62px; height: 62px; border-radius: 50%; position: relative;
+/* ── faders ─────────────────────────────────────────────────
+   Colour-coded caps (like the OP-1's encoders) riding in a dark slot; the lit part of the
+   slot runs from the bottom, or from the centre for a trim (energy, room level). */
+.encoders { grid-area: enc; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-content: start; padding-top: 2px; }
+.enc, .rfader { cursor: ns-resize; touch-action: none; outline: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.enc { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.f-label { font-size: 11px; color: var(--ink-soft); letter-spacing: .05em; }
+
+.f-body { --cap-h: 30px; position: relative; width: 60px; height: 164px; }
+.f-slot {
+  position: absolute; left: 50%; width: 8px; margin-left: -4px;
+  top: calc(var(--cap-h) / 2 - 4px); bottom: calc(var(--cap-h) / 2 - 4px);
+  border-radius: 4px; background: #1b1c1f;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.75);
+}
+.f-led {
+  position: absolute; left: 2px; right: 2px; border-radius: 2px;
+  bottom: calc(4px + var(--f-lo, 0) * (100% - 8px)); height: calc((var(--f-hi, 0) - var(--f-lo, 0)) * (100% - 8px));
+  background: var(--c); box-shadow: 0 0 6px var(--c); transition: bottom .15s, height .15s, opacity .2s;
+}
+.f-scale { position: absolute; inset: 0; pointer-events: none; }
+.f-tick { position: absolute; left: 0; right: 0; height: 0; bottom: calc(var(--cap-h) / 2 + var(--at) * (100% - var(--cap-h))); }
+.f-tick::before, .f-tick::after { content: ""; position: absolute; top: -.5px; width: 9px; height: 1.2px; background: #8e9296; border-radius: 1px; }
+.f-tick::before { left: 3px; }
+.f-tick::after { right: 3px; }
+.f-tick.mid::before, .f-tick.mid::after { width: 13px; height: 1.6px; top: -.8px; background: var(--ink-soft); }
+.f-tick.mid::before { left: -1px; } .f-tick.mid::after { right: -1px; }
+.f-cap {
+  position: absolute; left: 50%; width: 42px; height: var(--cap-h); margin-left: -21px;
+  bottom: calc(var(--pos, 0) * (100% - var(--cap-h)));
+  border-radius: 5px;
   background:
-    repeating-conic-gradient(from 0deg, #2c2e31 0 4deg, #45484c 4deg 8deg);
-  box-shadow: 0 5px 8px -2px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.6), inset 0 0 0 1px rgba(0,0,0,.5);
-  display: grid; place-items: center;
+    repeating-linear-gradient(0deg, rgba(0,0,0,.08) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--hi) 0%, var(--c) 55%, var(--lo) 100%);
+  box-shadow: 0 5px 7px -2px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.6), inset 0 -2px 0 rgba(0,0,0,.12);
+  transition: bottom .15s cubic-bezier(.2,.8,.2,1), filter .2s;
 }
-.enc .knob::before { /* well around the knob */
-  content: ""; position: absolute; inset: -6px; border-radius: 50%; z-index: -1;
-  background: linear-gradient(180deg, #b0b4b7, #e6e8e9);
-  box-shadow: inset 0 2px 3px rgba(0,0,0,.25);
-}
-.enc .cap {
-  width: 44px; height: 44px; border-radius: 50%; position: relative;
-  background: radial-gradient(circle at 38% 30%, var(--hi) 0%, var(--c) 55%, var(--lo) 100%);
-  box-shadow: inset 0 -2px 3px rgba(0,0,0,.25), inset 0 1px 1px rgba(255,255,255,.5), 0 1px 2px rgba(0,0,0,.4);
-  transform: rotate(var(--rot, 0deg));
-  transition: transform .09s;
-}
-.enc .cap::after { content: ""; position: absolute; left: 50%; top: 4px; width: 3px; height: 11px; margin-left: -1.5px; border-radius: 2px; background: rgba(0,0,0,.55); }
-.enc[data-color="blue"]   { --c: var(--blue);   --hi: #8dbbff; --lo: #1d5fc7; }
+.f-cap i { position: absolute; left: 5px; right: 5px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: rgba(0,0,0,.6); }
+.enc.held .f-cap, .enc.held .f-led, .rfader.held .f-cap, .rfader.held .f-led { transition: none; }
+.enc.held .f-cap, .rfader.held .f-cap { box-shadow: 0 2px 4px -1px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.6); }
+.enc:focus-visible .f-cap, .rfader:focus-visible .f-cap { outline: 3px solid rgba(61,139,255,.55); outline-offset: 2px; }
+.enc[data-color="blue"],   .rfader { --c: var(--blue);   --hi: #8dbbff; --lo: #1d5fc7; }
 .enc[data-color="green"]  { --c: var(--green);  --hi: #8ff0bd; --lo: #169656; }
 .enc[data-color="white"]  { --c: #e9e9e6;       --hi: #ffffff; --lo: #b8b9b6; }
 .enc[data-color="orange"] { --c: var(--orange); --hi: #ffae85; --lo: #c9460f; }
-.enc:focus-visible .knob { box-shadow: 0 0 0 3px rgba(61,139,255,.55), 0 5px 8px -2px rgba(0,0,0,.45); }
-.enc.dimmed .cap { filter: saturate(.25) brightness(.9); }
-.enc.dimmed span { opacity: .6; }
+.enc[data-color="white"] .f-led { box-shadow: 0 0 5px rgba(255,255,255,.7); }
+.enc.dimmed .f-cap { filter: saturate(.25) brightness(.95); }
+.enc.dimmed .f-led { opacity: .25; }
+.enc.dimmed .f-label { opacity: .6; }
 
 /* ── keys ──────────────────────────────────────────────────── */
 .keys {
@@ -253,7 +310,7 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .slide-wrap { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .panel-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cal-key { width: 64px; height: 56px; flex: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-.cal-key.busy .led { animation: blink 1s steps(2, start) infinite; }
+.cal-key.busy .led, .side-switch.busy + .side-label .led { animation: blink 1s steps(2, start) infinite; }
 @keyframes blink { to { visibility: hidden; } }
 
 /* calibration view: takes over the screen while calibrating */
@@ -304,7 +361,9 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .slide:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .slide:disabled { cursor: not-allowed; opacity: .55; }
 
-/* ── rooms keyboard ───────────────────────────────────────── */
+/* ── rooms: channel strips ────────────────────────────────
+   Each room is a strip on a recessed panel, like a mixer channel: the name and a small LCD on a raised
+   white plate (not a button), then the level fader, and on / mute / main underneath. */
 .rooms { grid-area: rooms; }
 .rooms-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .rooms-head h3 { margin: 0 auto 0 2px; }
@@ -314,102 +373,74 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 }
 .mini:active { transform: translateY(1px); box-shadow: 0 1px 0 #a4a7a9; }
 .mini.hot { background: linear-gradient(180deg, #ff8a55, var(--orange)); color: #fff; box-shadow: 0 2px 0 #b8410d; }
-.keyboard {
-  display: flex; gap: 3px; padding: 8px; border-radius: 10px; background: #26282b;
-  box-shadow: inset 0 2px 5px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.6);
-  flex-wrap: wrap;
+.channels {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); border-radius: 12px; overflow: hidden;
+  background: linear-gradient(180deg, #bfc3c6, #c9ccce);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.18), 0 1px 0 rgba(255,255,255,.7);
 }
-/* Each room is a column in the keyboard bed: a key cap (tap = on/off) over a recessed metal control plate. */
-.room { flex: 1 1 150px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.room-key {
-  position: relative; flex: 1; min-height: 66px; border: 0; border-radius: 3px 3px 8px 8px; cursor: pointer; text-align: left;
-  display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 10px 11px; font: inherit; color: inherit;
-  background: linear-gradient(180deg, #d9dad7 0%, #f6f6f3 30%, #eeeeea 100%);
-  box-shadow: inset 0 -5px 0 #cfd0cc, inset 0 1px 0 #fff;
-  transition: transform .06s;
+.room {
+  display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 14px 16px 16px;
+  box-shadow: inset 1px 0 0 rgba(255,255,255,.5), inset -1px 0 0 rgba(0,0,0,.11);  /* engraved line between strips */
 }
-.room-key:active { transform: translateY(2px); }
-.room-key:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.room-key .led { position: absolute; top: 9px; right: 9px; width: 6px; height: 6px; }
-.room-key b { font-weight: 500; font-size: 12.5px; line-height: 1.2; padding-right: 10px; }
-.room-key small { font-family: var(--mono); font-size: 10px; color: var(--ink-soft); }
-.room.off .room-key b { color: var(--ink-soft); }
-.room.main .room-key { background: linear-gradient(180deg, #d9dad7 0%, #fff7f2 30%, #f7ece5 100%); }
+/* raised white plate for the room's name and LCD: styled like a key cap, but fixed (not pressable) */
+.ch-plate {
+  display: flex; flex-direction: column; gap: 9px; padding: 10px 10px 11px; margin-bottom: 5px; border-radius: 9px; cursor: default;
+  background: linear-gradient(180deg, #fbfbf9 0%, var(--key) 55%, var(--key-lo) 100%);
+  box-shadow: 0 3px 0 #a4a7a9, 0 5px 6px -2px rgba(0,0,0,.35), inset 0 1px 0 #fff;
+}
+.ch-head { display: flex; align-items: flex-start; gap: 7px; min-height: 2.5em; font-size: 12px; }
+.ch-head .led { margin-top: 4px; }
+.ch-head b { font-weight: 500; line-height: 1.25; letter-spacing: .03em; text-transform: lowercase; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.room.off .ch-head b { color: var(--ink-soft); }
 
-.room-plate {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px;
-  padding: 6px 8px 7px 5px; border-radius: 4px 4px 8px 8px;
-  background: linear-gradient(180deg, #c3c7ca, #cdd0d2);
-  box-shadow: inset 0 2px 3px rgba(0,0,0,.2), inset 0 -1px 0 rgba(255,255,255,.35);
-}
-
-/* level knob: a small version of the main volume knob, five printed detents from 9 to 3 o'clock */
-.rknob {
-  position: relative; width: 48px; height: 48px; display: grid; place-items: center;
-  cursor: ns-resize; touch-action: none; outline: none; user-select: none; -webkit-tap-highlight-color: transparent;
-}
-.rknob-scale { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.rknob-scale .tick { stroke: #8e9296; stroke-width: 1.6; stroke-linecap: round; transition: stroke .15s; }
-.rknob-scale .tick.on { stroke: var(--orange); filter: drop-shadow(0 0 2px rgba(255,107,44,.7)); }
-.rknob-scale text { font-family: var(--mono); font-size: 8px; fill: var(--ink-soft); }
-.rknob .knob {
-  width: 30px; height: 30px; border-radius: 50%; position: relative; display: grid; place-items: center;
-  background: repeating-conic-gradient(from 0deg, #2c2e31 0 6deg, #45484c 6deg 12deg);
-  box-shadow: 0 3px 5px -1px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.6), inset 0 0 0 1px rgba(0,0,0,.5);
-}
-.rknob .knob::before { /* well */
-  content: ""; position: absolute; inset: -3px; border-radius: 50%; z-index: -1;
-  background: linear-gradient(180deg, #b0b4b7, #e6e8e9); box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
-}
-.rknob .cap {
-  --c: var(--blue); --hi: #8dbbff; --lo: #1d5fc7;
-  width: 21px; height: 21px; border-radius: 50%; position: relative;
-  background: radial-gradient(circle at 38% 30%, var(--hi) 0%, var(--c) 55%, var(--lo) 100%);
-  box-shadow: inset 0 -1.5px 2px rgba(0,0,0,.25), inset 0 1px 1px rgba(255,255,255,.5), 0 1px 2px rgba(0,0,0,.4);
-  transform: rotate(var(--rot, 0deg)); transition: transform .12s cubic-bezier(.3, 1.5, .5, 1);
-}
-.rknob .cap::after { content: ""; position: absolute; left: 50%; top: 2px; width: 2px; height: 7px; margin-left: -1px; border-radius: 1px; background: rgba(0,0,0,.6); }
-.rknob:focus-visible .knob { box-shadow: 0 0 0 3px rgba(61,139,255,.55), 0 3px 5px -1px rgba(0,0,0,.45); }
-.room.off .rknob .cap, .room.muted .rknob .cap { filter: saturate(.25) brightness(.92); }
-
-/* middle column: a tiny LCD for the level, and a latching "main" key under it */
-.plate-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .lcd {
-  position: relative; overflow: hidden; height: 20px; padding: 0 6px; border-radius: 3px;
-  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden; height: 20px; padding: 0 7px; border-radius: 3px;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
   background: radial-gradient(120% 90% at 50% 40%, #0e0f12 0%, var(--scr) 70%);
   box-shadow: 0 0 0 2px #2b2d30, 0 1px 0 2px rgba(255,255,255,.55), inset 0 0 8px rgba(0,0,0,.9);
-  font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--blue);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; color: var(--blue);
   text-shadow: 0 0 4px rgba(61,139,255,.55); white-space: nowrap;
 }
 .lcd::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(160deg, rgba(255,255,255,.07) 0%, transparent 45%); }
-.lcd.zero { color: var(--dim); text-shadow: none; }
+.room.main .lcd-st { color: var(--green); text-shadow: 0 0 4px rgba(47,211,127,.5); }
 .room.off .lcd, .room.muted .lcd { color: var(--dim); text-shadow: none; }
-.room-main {
-  position: relative; height: 20px; border: 0; border-radius: 4px; cursor: pointer; padding: 0 6px 0 14px;
-  font-family: var(--label); font-size: 10px; letter-spacing: .04em; color: var(--ink-soft);
-  background: linear-gradient(180deg, #fafaf8, #dcdcd9);
-  box-shadow: 0 2px 0 #a4a7a9, 0 3px 3px -1px rgba(0,0,0,.25), inset 0 1px 0 #fff;
-  transition: transform .06s, box-shadow .06s;
-}
-.room-main .led { position: absolute; left: 6px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; }
-.room-main:active { transform: translateY(1px); box-shadow: 0 1px 0 #a4a7a9, inset 0 1px 0 #fff; }
-.room-main.is-main { transform: translateY(2px); box-shadow: 0 0 0 #a4a7a9, inset 0 1px 2px rgba(0,0,0,.18); color: var(--ink); cursor: default; }
-.room-main:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.room.muted .lcd-st { color: var(--red); text-shadow: 0 0 4px rgba(255,59,59,.5); }
 
-/* mute: a small version of the demo/live slide switch, label printed underneath */
-.plate-mute { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.ch-body { display: flex; align-items: stretch; justify-content: space-between; gap: 12px; }
+/* room level: the same fader, smaller, with its detents printed on the left */
+.rfader .f-body { --cap-h: 22px; width: 62px; height: 118px; }
+.rfader .f-slot { left: auto; right: 13px; margin-left: 0; width: 6px; }
+.rfader .f-led { left: 1.5px; right: 1.5px; }
+.rfader .f-cap { left: auto; right: 0; margin-left: 0; width: 32px; border-radius: 4px; }
+.rfader .f-tick::after { display: none; }
+.rfader .f-tick::before { left: auto; right: 34px; width: 6px; }
+.rfader .f-tick.mid::before { width: 8px; right: 34px; }
+.rfader .f-tick b {
+  position: absolute; right: 44px; top: -6px; font-family: var(--mono); font-size: 9px; font-weight: 400; line-height: 12px;
+  color: var(--ink-soft); transition: color .15s;
+}
+.rfader .f-tick.on b { color: var(--orange); }
+.rfader .f-tick.on::before { background: var(--orange); }
+.room.off .rfader .f-cap, .room.muted .rfader .f-cap { filter: saturate(.25) brightness(.95); }
+.room.off .rfader .f-led, .room.muted .rfader .f-led { opacity: .25; }
+
+.ch-switches { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; flex: 0 1 78px; }
+.sw-row { display: flex; align-items: center; gap: 7px; }
 .mslide {
   position: relative; width: 36px; height: 18px; border: 0; padding: 0; border-radius: 9px; cursor: pointer; flex: none;
   background: linear-gradient(180deg, #232427, #3a3c40);
   box-shadow: inset 0 1.5px 3px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.75);
   transition: background .3s;
 }
-.mslide::before { /* slot glow when muted */
+.mslide::before { /* slot glow when switched on */
   content: ""; position: absolute; inset: 3px 5px; border-radius: 6px; opacity: 0; transition: opacity .3s;
-  background: radial-gradient(60% 120% at 30% 50%, rgba(255,59,59,.6), transparent 70%);
+  background: radial-gradient(60% 120% at 30% 50%, var(--glow), transparent 70%);
 }
-.mslide.on { background: linear-gradient(180deg, #341a1a, #4a2626); }
+.on-sw { --glow: rgba(47,211,127,.6); }
+.mute-sw { --glow: rgba(255,59,59,.6); }
+.on-sw.on { background: linear-gradient(180deg, #16301f, #24472f); }
+.mute-sw.on { background: linear-gradient(180deg, #341a1a, #4a2626); }
 .mslide.on::before { opacity: 1; }
 .mslide .thumb {
   position: absolute; top: 2px; left: 2px; width: 18px; height: 14px; border-radius: 7px;
@@ -421,15 +452,23 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 }
 .mslide.on .thumb { left: 16px; }
 .mslide:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-.mlab { display: flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: .06em; color: var(--ink-soft); cursor: pointer; user-select: none; }
-.mlab .led { width: 5px; height: 5px; }
-.room.muted .mlab { color: var(--ink); }
+.mlab { font-size: 10.5px; letter-spacing: .06em; color: var(--ink-soft); cursor: pointer; user-select: none; }
+.room:not(.off) .on-sw + .mlab, .room.muted .mute-sw + .mlab { color: var(--ink); }
 
-.room.empty {
-  flex: 1; min-height: 84px; padding: 10px 11px; justify-content: flex-end; border-radius: 3px 3px 8px 8px;
-  background: #3a3c3f; color: #999;
+.room-main {
+  position: relative; height: 24px; border: 0; border-radius: 4px; cursor: pointer; padding: 0 8px 0 18px; text-align: left;
+  font-family: var(--label); font-size: 10.5px; letter-spacing: .04em; color: var(--ink-soft);
+  background: linear-gradient(180deg, #fafaf8, #dcdcd9);
+  box-shadow: 0 2px 0 #a4a7a9, 0 3px 3px -1px rgba(0,0,0,.25), inset 0 1px 0 #fff;
+  transition: transform .06s, box-shadow .06s;
 }
-.room.empty b { color: #9aa0a6; font-weight: 400; font-size: 12.5px; }
+.room-main .led { position: absolute; left: 7px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; }
+.room-main:active { transform: translateY(1px); box-shadow: 0 1px 0 #a4a7a9, inset 0 1px 0 #fff; }
+.room-main.is-main { transform: translateY(2px); box-shadow: 0 0 0 #a4a7a9, inset 0 1px 2px rgba(0,0,0,.18); color: var(--ink); cursor: default; }
+.room-main:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.room.empty { padding: 22px 18px; }
+.room.empty b { color: var(--ink-soft); font-weight: 400; font-size: 12.5px; }
 
 /* ── strip below the device ──────────────────────────────── */
 .strip { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; margin-top: 26px; }
@@ -496,6 +535,9 @@ form .row { display: flex; gap: 7px; }
   .cv-occ { width: 50px; height: 6px; } .cv-song { font-size: 11px; }
   #cv-summary { font-size: 11px; padding-left: 14px; } .cv-legend { font-size: 10.5px; gap: 4px 10px; padding-top: 6px; }
   .cv-legend .chip { border-radius: 3px; padding: 0 4px; }
+  .side-switch, .side-label { top: 40px; }
+  .side-switch { left: -11px; }
+  .side-label { left: 3px; }
   .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .key { width: auto; }
 
@@ -505,18 +547,26 @@ form .row { display: flex; gap: 7px; }
   .mini { padding: 10px 14px; font-size: 13px; }  /* below 16px iOS Safari zooms the page on focus */
   .device { grid-template-columns: minmax(0, 1fr); grid-template-areas: "screen" "enc" "keys" "rooms"; padding: 22px 16px 18px; gap: 18px; }
   .encoders { padding-top: 4px; }
-  .enc .knob { width: 54px; height: 54px; } .enc .cap { width: 38px; height: 38px; }
+  .f-body { height: 150px; --cap-h: 34px; }  /* a taller cap is easier to grab with a thumb */
+  .f-cap { width: 46px; margin-left: -23px; }
   .keys { padding: 12px; gap: 14px; }
   .key { height: 64px; }
   .strip { grid-template-columns: 1fr; }
-  .room { flex-basis: 45%; }
-  .rknob { width: 54px; height: 54px; }
-  .rknob .knob { width: 34px; height: 34px; } .rknob .cap { width: 24px; height: 24px; }
-  .lcd, .room-main { height: 26px; }
-  .mslide { width: 44px; height: 24px; border-radius: 12px; }
-  .mslide .thumb { width: 22px; height: 20px; border-radius: 10px; }
-  .mslide.on .thumb { left: 20px; }
-  .room-main { padding: 6px 10px; font-size: 11px; }
+  .channels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .room { padding: 12px 12px 14px; box-shadow: inset 1px 0 0 rgba(255,255,255,.5), inset -1px 0 0 rgba(0,0,0,.11), inset 0 -1px 0 rgba(0,0,0,.08); }
+  .ch-body { gap: 6px; }
+  .rfader .f-body { height: 132px; width: 54px; --cap-h: 28px; }
+  .rfader .f-slot { right: 11px; }
+  .rfader .f-cap { width: 28px; }
+  .rfader .f-tick::before, .rfader .f-tick.mid::before { right: 30px; width: 5px; }
+  .rfader .f-tick b { right: 38px; }
+  .ch-switches { flex: none; }
+  .sw-row { gap: 5px; }
+  .lcd { height: 24px; }
+  .room-main { height: 30px; font-size: 11px; }
+  .mslide { width: 40px; height: 24px; border-radius: 12px; }
+  .mslide .thumb { width: 20px; height: 20px; border-radius: 10px; }
+  .mslide.on .thumb { left: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ticker span, .device { animation: none; }
