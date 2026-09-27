@@ -113,7 +113,8 @@ default −16 LUFS), so no song is much louder or quieter than the rest and the 
 every track. The prefetcher measures each file with ffmpeg and rewrites it with the gain applied (boosts go through a
 limiter, capped at `max_boost_db`; tracks already within `skip_within_db` are left alone). The screen shows the gain,
 e.g. `lvl −1.9 dB`. The playing track and the next one (which Sonos pre-loads) are never rewritten; they get levelled
-next time. Results are in `data/normalised.json`. Not levelled yet: tracks still streaming through before they're cached,
+next time. Results are in `data/normalised.json`, with the target each file was levelled for, so changing
+`target_lufs` re-levels the cache in the background. Not levelled yet: tracks still streaming through before they're cached,
 and files in `library/` (they're played as they are).
 
 ## Resilience

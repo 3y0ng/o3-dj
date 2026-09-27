@@ -71,3 +71,27 @@ def test_playing_and_next_tracks_are_not_rewritten(cache):
     assert not pf._normalise(a) and not pf._normalise(b)  # Sonos may be reading these
     assert pf._normalise(c) and cache.gain(c) is not None
     assert cache.needs_normalising(a) and cache.needs_normalising(b)
+
+
+def test_changing_the_target_relevels_cached_files(cache):
+    t = put(cache, "retune", 10)  # about -11 LUFS
+    first = cache.normalise(t)
+    assert abs(measure_lufs(cache.local_path(t)) - (-16)) < 1.0 and not cache.needs_normalising(t)
+
+    cache.norm_cfg = dict(cache.norm_cfg, target_lufs=-20)
+    assert cache.needs_normalising(t)
+    total = cache.normalise(t)
+    assert abs(measure_lufs(cache.local_path(t)) - (-20)) < 1.0
+    assert total < first < 0  # gain is the total applied to the recording, not just the latest change
+    entry = cache.norm.data[cache.name_for(t)]
+    assert entry["target"] == -20 and abs(entry["lufs"] - (-11)) < 1.5
+    assert not cache.needs_normalising(t)
+
+
+def test_files_levelled_before_targets_were_recorded_are_rechecked(cache):
+    t = put(cache, "legacy", 10)
+    cache.normalise(t)
+    del cache.norm.data[cache.name_for(t)]["target"]  # entry written by the first version
+    assert cache.needs_normalising(t)
+    gain = cache.normalise(t)  # already at -16: nothing rewritten, prior gain kept
+    assert gain == cache.norm.data[cache.name_for(t)]["gain"] < 0

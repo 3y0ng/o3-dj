@@ -71,35 +71,45 @@ class Cache:
         return (self.norm_cfg.get("enabled", True) and not track.path
                 and Path(self.name_for(track)).suffix in NORM_FORMATS)
 
+    def target(self):
+        return self.norm_cfg.get("target_lufs", -16)
+
     def needs_normalising(self, track):
-        return self.can_normalise(track) and self.has(track) and self.name_for(track) not in self.norm.data
+        """Not levelled yet, or levelled for a different target_lufs (so changing the target takes effect)."""
+        if not (self.can_normalise(track) and self.has(track)):
+            return False
+        entry = self.norm.data.get(self.name_for(track))
+        return entry is None or entry.get("target") != self.target()
 
     def gain(self, track):
-        """dB applied to the cached file (0 if it was already close), or None if not normalised."""
+        """Total dB applied to the cached file (0 if it was already close), or None if not normalised."""
         entry = self.norm.data.get(self.name_for(track))
         return entry["gain"] if entry else None
 
     def normalise(self, track):
-        """Measure the cached file and rewrite it at the target loudness. Returns the gain in dB."""
+        """Measure the cached file and rewrite it at the target loudness. Returns the total gain in dB.
+        A file levelled before (for another target) already carries a gain; the caps apply to the total."""
         c = self.norm_cfg
         name = self.name_for(track)
         path = self.dir / name
-        lufs = measure_lufs(path)
-        gain = 0.0
+        prior = (self.norm.data.get(name) or {}).get("gain") or 0.0
+        lufs = measure_lufs(path)  # as the file is now, i.e. including any prior gain
+        total = prior
         if lufs > -50:  # near-silent reading: leave it alone rather than boost noise
-            gain = max(-c.get("max_cut_db", 15), min(c.get("max_boost_db", 8), c.get("target_lufs", -16) - lufs))
-        gain = round(gain, 1)
-        if abs(gain) >= c.get("skip_within_db", 1.0):
+            total = max(-c.get("max_cut_db", 15), min(c.get("max_boost_db", 8), prior + self.target() - lufs))
+        change = round(total - prior, 1)
+        if abs(change) >= c.get("skip_within_db", 1.0):
             tmp = self.dir / (name + ".norm.part")
             try:
-                apply_gain(path, tmp, gain, c.get("bitrate", "192k"))
+                apply_gain(path, tmp, change, c.get("bitrate", "192k"))
                 os.replace(tmp, path)  # atomic: a reader mid-file keeps the old one
             finally:
                 tmp.unlink(missing_ok=True)
         else:
-            gain = 0.0
-        with self.norm.lock:
-            self.norm.data[name] = {"lufs": lufs, "gain": gain}
+            change = 0.0
+        gain = round(prior + change, 1)
+        with self.norm.lock:  # lufs: the track as recorded, before any levelling
+            self.norm.data[name] = {"lufs": round(lufs - prior, 1), "gain": gain, "target": self.target()}
         self.norm.save()
         return gain
 
@@ -187,7 +197,9 @@ class Prefetcher:
         except Exception as e:
             log.info("normalise failed for %s: %s", track.id, e)
             with self.cache.norm.lock:  # don't retry forever; it still plays as it is
-                self.cache.norm.data[self.cache.name_for(track)] = {"lufs": None, "gain": 0.0, "failed": True}
+                prior = (self.cache.norm.data.get(self.cache.name_for(track)) or {}).get("gain") or 0.0
+                self.cache.norm.data[self.cache.name_for(track)] = {"lufs": None, "gain": prior, "failed": True,
+                                                                     "target": self.cache.target()}
         return True
 
     def step(self):
