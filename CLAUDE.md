@@ -9,6 +9,7 @@ Read `README.md` for how it works and `todo.md` for what's next. Keep todo.md cu
 python3 run.py --mock      # silent simulated speakers, own state (data/mock_state.json), port 8330
 python3 run.py             # REAL speakers in a working cafe; see safety below
 python3 -m pytest -q       # tests; no network or speakers needed
+./dj.sh start|stop|restart|status|log   # live server in the background (own session + caffeinate), log in data/server.log
 ```
 
 Stack: Python 3.11, Flask, SoCo, numpy, ffmpeg/ffprobe (tempo + duration). Frontend is plain HTML/CSS/JS in `web/`
