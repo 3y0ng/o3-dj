@@ -17,16 +17,25 @@
   "default_genres": ["chill"],
 
   "daypart_curve": [
-    [0,  0.18, 20, "late night"],
-    [6,  0.25, 24, "early morning"],
-    [9,  0.35, 30, "morning"],
-    [13, 0.45, 36, "afternoon"],
-    [16, 0.45, 36, "afternoon"],
-    [18, 0.35, 32, "early evening"],
-    [21, 0.25, 26, "evening"],
-    [24, 0.18, 20, "late night"]
+    [0,  0.18,  30, "after hours"],
+    [2,  0.203, 30, "after hours"],
+    [2,  0.203, 20, "small hours"],
+    [5,  0.238, 20, "small hours"],
+    [5,  0.238, 20, "early morning"],
+    [7,  0.283, 20, "early morning"],
+    [7,  0.283, 35, "morning"],
+    [10, 0.375, 35, "morning"],
+    [10, 0.375, 50, "late morning"],
+    [12, 0.425, 50, "late morning"],
+    [12, 0.425, 60, "afternoon"],
+    [19, 0.317, 60, "afternoon"],
+    [19, 0.317, 50, "evening"],
+    [21, 0.25,  50, "evening"],
+    [21, 0.25,  30, "after hours"],
+    [24, 0.18,  30, "after hours"]
   ],
   "reset_trims_on_daypart": true,
+  "quiet_hours": [[5, 7]],
 
   "weather": {
     "clear":  { "energy": 0.00,  "volume": 0,  "boost": {} },
