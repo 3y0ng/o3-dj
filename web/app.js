@@ -743,9 +743,22 @@ function renderStrip(s) {
 // The speakers stream from this server's /media URLs, so the browser can fetch the same file and follow
 // the speaker's position. On by default in demo mode; the key's choice is remembered per device.
 const LISTEN_KEY = "o3dj.listen";
-const listen = { audio: new Audio(), pref: null, blocked: false, starting: false, told: false, uri: null, start: null, rtt: 0 };
-listen.audio.preload = "auto";
-listen.audio.preservesPitch = true;  // speed nudges below shouldn't bend the pitch
+// Two players take turns so a new song can fade in while the last one fades out, like the speakers' crossfade.
+const XFADE_S = 5;
+function newListenAudio() {
+  const a = new Audio();
+  a.preload = "auto";
+  a.preservesPitch = true;  // speed nudges below shouldn't bend the pitch
+  a.addEventListener("playing", () => S && renderListenKey(listenOn(S)));
+  a.addEventListener("pause", () => S && renderListenKey(listenOn(S)));
+  return a;
+}
+const listen = { els: [newListenAudio(), newListenAudio()], cur: 0, pref: null, blocked: false, starting: false, told: false,
+                 uri: null, start: null, rtt: 0, base: 1, gain: 1, out: null, fadeTimer: null, unlocked: false };
+Object.defineProperty(listen, "audio", { get: () => listen.els[listen.cur] });
+Object.defineProperty(listen, "spare", { get: () => listen.els[1 - listen.cur] });
+// iOS Safari ignores audio.volume, so it can't fade: there the new song simply takes over, as before.
+const CAN_FADE = (() => { const t = new Audio(); t.volume = 0.5; return t.volume === 0.5; })();
 try { listen.pref = localStorage.getItem(LISTEN_KEY); } catch (e) { /* storage blocked */ }
 
 function listenOn(s) { return listen.pref ? listen.pref === "on" : s.mode !== "live"; }
@@ -768,16 +781,61 @@ function noteSpeakerClock(st) {
     listen.start = Math.min(listen.start, est);
   }
 }
+function applyListenVolume() {
+  listen.audio.volume = clamp(listen.base * listen.gain, 0, 1);
+  if (listen.out) listen.out.el.volume = clamp(listen.base * listen.out.gain, 0, 1);
+}
+
+function endCrossfade() {
+  clearInterval(listen.fadeTimer);
+  if (listen.out) listen.out.el.pause();
+  listen.out = null;
+  listen.gain = 1;
+  applyListenVolume();
+}
+
+// Hand over to the spare player: the old song fades out while the new one fades in (equal power, so the
+// overall level holds steady through the overlap).
+function crossfadeToSpare() {
+  endCrossfade();
+  const old = listen.audio;
+  listen.cur = 1 - listen.cur;
+  listen.out = { el: old, gain: 1 };
+  listen.gain = 0;
+  applyListenVolume();
+  const t0 = performance.now();
+  listen.fadeTimer = setInterval(() => {
+    const k = clamp((performance.now() - t0) / (XFADE_S * 1000), 0, 1);
+    listen.gain = Math.sin(k * Math.PI / 2);
+    if (listen.out) listen.out.gain = Math.cos(k * Math.PI / 2);
+    applyListenVolume();
+    if (k >= 1) endCrossfade();
+  }, 50);
+}
+
+// Browsers (iOS especially) only let a player make sound once it has been started from a tap; start the
+// spare silently during the first tap so it can take over later without one.
+function unlockSpare() {
+  if (listen.unlocked || !listen.audio.src) return;
+  listen.unlocked = true;
+  const b = listen.spare;
+  b.muted = true;
+  b.src = listen.audio.src;
+  b.play().then(() => { b.pause(); b.muted = false; }).catch(() => { b.muted = false; listen.unlocked = false; });
+}
+
 function listenTarget() { return listen.start == null ? 0 : performance.now() / 1000 - listen.start; }
 
 function syncListen(s) {
-  const a = listen.audio, st = s.status || {};
+  let a = listen.audio;
+  const st = s.status || {};
   const on = listenOn(s);
   const path = s.running && !s.paused && st.state === "PLAYING" ? mediaPath(st.uri) : null;  // null: not our music
   // On only by the demo default: a page in the background (another tab, a hidden window) stays quiet, so
   // a forgotten tab doesn't play over the one you're using. Switched on by hand: keeps playing (e.g. phone locked).
   const background = document.hidden && listen.pref !== "on";
   if (!on || !path || background) {
+    endCrossfade();
     if (!a.paused) a.pause();
     listen.blocked = false;
     return renderListenKey(on);
@@ -786,8 +844,15 @@ function syncListen(s) {
   // heard), without the main room's own offset or mute. The device volume sets the overall level.
   const main = s.speakers.find((sp) => sp.coordinator);
   const vol = main && s.volumes ? s.volumes[main.ip] : null;
-  a.volume = vol != null ? clamp((vol - (s.room_offsets?.[main.ip] || 0)) / s.limits.max_volume, 0, 1) : 1;
+  listen.base = vol != null ? clamp((vol - (s.room_offsets?.[main.ip] || 0)) / s.limits.max_volume, 0, 1) : 1;
+  applyListenVolume();
   if (a.dataset.path !== path) {
+    if (CAN_FADE && a.dataset.path && !a.paused) {  // the speakers moved on to the next song: crossfade like they do
+      crossfadeToSpare();
+      a = listen.audio;
+    } else {
+      endCrossfade();
+    }
     a.dataset.path = path;
     a.src = path;
     a.playbackRate = 1;
@@ -803,7 +868,7 @@ function syncListen(s) {
   }
   if (a.paused && !listen.starting) {
     listen.starting = true;
-    a.play().then(() => { listen.blocked = false; }).catch((e) => {
+    a.play().then(() => { listen.blocked = false; unlockSpare(); }).catch((e) => {
       if (e.name !== "NotAllowedError") return;
       listen.blocked = true;  // browsers only start sound after a tap; the next tap anywhere starts it
       if (!listen.told) { listen.told = true; popup("listen", "tap", "tap anywhere to hear it on this device", "var(--green)"); }
@@ -824,10 +889,8 @@ function renderListenKey(on) {
 
 document.addEventListener("visibilitychange", () => S && syncListen(S));
 for (const ev of ["click", "touchend", "keydown"]) {
-  document.addEventListener(ev, () => { if (listen.blocked && S) syncListen(S); }, true);
+  document.addEventListener(ev, () => { if (listen.blocked && S) syncListen(S); unlockSpare(); }, true);
 }
-listen.audio.addEventListener("playing", () => S && renderListenKey(listenOn(S)));
-listen.audio.addEventListener("pause", () => S && renderListenKey(listenOn(S)));
 
 // ── tape reels: left pack unwinds onto the right as the track plays ──────────
 const REEL = { l: [27, 28], r: [93, 28], guideL: [16, 64], guideR: [104, 64], gr: 2.4, core: 6.5, full: 20 };
