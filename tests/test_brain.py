@@ -20,6 +20,14 @@ def test_evening_is_slower_and_quieter_than_afternoon():
     assert eve["volume"] < aft["volume"]
 
 
+def test_volume_schedule_steps():
+    """Newtown's schedule (Sep 2026): base volume by time of day, before busy/empty/rain nudges."""
+    expect = {22.5: 30, 1: 30, 3: 20, 6: 20, 8: 35, 9.99: 35, 11: 50, 12.5: 60, 18.9: 60, 20: 50, 21.2: 30}
+    for hour, vol in expect.items():
+        assert tgt(hour)["volume"] == vol, hour
+    assert tgt(9.9)["energy"] < tgt(10.1)["energy"] + 0.01  # energy stays smooth across the volume steps
+
+
 def test_hour_override_beats_clock():
     assert tgt(14, hour_override=22)["hour"] == 22
     assert tgt(14, hour_override=22)["energy"] == tgt(22)["energy"]
@@ -39,9 +47,9 @@ def test_rain_pulls_in_jazz_even_when_unselected():
 
 
 def test_occupancy_only_counts_when_enabled_and_busy():
-    base = tgt(14, occupancy=95)
-    busy = tgt(14, occupancy=95, occupancy_enabled=True)
-    quiet = tgt(14, occupancy=20, occupancy_enabled=True)
+    base = tgt(8, occupancy=95)  # a quiet hour, so there's room under max_volume to get louder
+    busy = tgt(8, occupancy=95, occupancy_enabled=True)
+    quiet = tgt(8, occupancy=20, occupancy_enabled=True)
     assert busy["energy"] > base["energy"] and busy["volume"] > base["volume"]
     assert quiet["energy"] == base["energy"]
 

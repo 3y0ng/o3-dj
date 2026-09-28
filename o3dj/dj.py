@@ -83,6 +83,7 @@ class DJ:
         self.foreign_ticks = 0
         self.last_skip = 0.0
         self.last_daypart = None
+        self.last_quiet = None   # inside quiet_hours at the last tick (None: not checked yet)
         self.status = {}
         self.speakers = []
         self.volumes = {}
@@ -807,6 +808,8 @@ class DJ:
                     self._wizard_play()
                 return
             self._check_daypart()
+            if self._check_quiet_hours(st):
+                return
             self._follow_live()
             if not self.running:
                 if n % 5 == 0:
@@ -870,6 +873,58 @@ class DJ:
             self.event(msg)
             self.dirty_at = 0
         self.last_daypart = dp
+
+    def quiet_now(self):
+        """Inside one of config quiet_hours ([[from, to], ...] on the venue clock; may wrap past midnight)?"""
+        h = self.hour_now()
+        return any((a <= h < b) if a < b else (h >= a or h < b) for a, b in self.cfg.get("quiet_hours", []))
+
+    def _check_quiet_hours(self, st):
+        """Music off during quiet hours: fade out and pause on the way in; on the way out, resume only if
+        the quiet hours paused it. Staff can still press play in between. Returns True if it acted
+        (the status read this tick is then out of date)."""
+        quiet = self.quiet_now()
+        was, self.last_quiet = self.last_quiet, quiet
+        if quiet == was:
+            return False
+        if quiet and self.running and st["state"] == "PLAYING":
+            self.store.data["quiet_paused"] = True
+            self.save()
+            self.event("quiet hours - music off")
+            self._fade_pause()
+            return True
+        if not quiet and self.store.data.get("quiet_paused"):
+            self.store.data["quiet_paused"] = False
+            self.save()
+            if self.running and self.paused:
+                self.event("quiet hours over - music back on")
+                self.play()
+                return True
+        return False
+
+    def _fade_pause(self):
+        """Pause with a gentle fade (a few seconds), then put the level back for when it resumes."""
+        if not self.fade_skips or self.fading:
+            return self.pause()
+        self.fading = True
+
+        def run():
+            try:
+                start = self.player.group_volume()
+                for f in (0.8, 0.6, 0.45, 0.3, 0.18, 0.08):
+                    self.player.set_group_volume(round(start * f))
+                    time.sleep(0.6)
+                self.pause()
+                self.player.set_group_volume(start)
+            except Exception:
+                log.exception("quiet-hours fade failed")
+                try:
+                    self.pause()
+                except Exception:
+                    pass
+            finally:
+                self.fading = False
+        threading.Thread(target=run, daemon=True, name="fade-pause").start()
 
     def run(self, interval=2.0):
         try:

@@ -481,3 +481,56 @@ def test_mock_tracks_last_their_real_length_when_known():
     assert p.status()["uri"] == "b"  # 0.6 s fallback, not 0.3
     time.sleep(0.35)
     assert p.status()["uri"] == "c"
+
+
+# -- quiet hours: music off 5-7am ----------------------------------------------------
+
+def at_hour(dj, monkeypatch, hour):
+    monkeypatch.setattr(dj, "hour_now", lambda: hour)
+
+
+def test_quiet_hours_pause_then_resume(dj, monkeypatch):
+    at_hour(dj, monkeypatch, 4.9)
+    started(dj)
+    at_hour(dj, monkeypatch, 5.0); dj.tick(1)
+    assert dj.paused and dj.player.status()["state"] == "PAUSED_PLAYBACK"
+    at_hour(dj, monkeypatch, 6.5); dj.tick(2)
+    assert dj.paused
+    at_hour(dj, monkeypatch, 7.0); dj.tick(3)
+    assert not dj.paused and dj.player.status()["state"] == "PLAYING"
+
+
+def test_staff_can_play_during_quiet_hours(dj, monkeypatch):
+    at_hour(dj, monkeypatch, 4.9)
+    started(dj)
+    at_hour(dj, monkeypatch, 5.1); dj.tick(1)
+    dj.play(); dj.tick(2); dj.tick(3)
+    assert not dj.paused and dj.player.status()["state"] == "PLAYING"  # not paused again
+
+
+def test_quiet_hours_leave_a_paused_dj_alone(dj, monkeypatch):
+    at_hour(dj, monkeypatch, 4.9)
+    started(dj)
+    dj.pause(); dj.tick(1)
+    at_hour(dj, monkeypatch, 5.5); dj.tick(2)
+    at_hour(dj, monkeypatch, 7.5); dj.tick(3)
+    assert dj.paused  # quiet hours didn't pause it, so they don't resume it
+
+
+def test_quiet_hours_resume_after_a_restart(tmp_path, monkeypatch):
+    player = MockPlayer(track_seconds=1000)
+    a = make_dj(tmp_path, player)
+    at_hour(a, monkeypatch, 4.9)
+    started(a)
+    at_hour(a, monkeypatch, 5.2); a.tick(1)
+    b = make_dj(tmp_path, player)  # restarted during quiet hours
+    b.adopt()
+    at_hour(b, monkeypatch, 7.1); b.tick(0); b.tick(1)
+    assert b.running and player.status()["state"] == "PLAYING"
+
+
+def test_quiet_hours_can_wrap_midnight(dj, monkeypatch):
+    dj.cfg = dict(dj.cfg, quiet_hours=[[23, 1]])
+    for h, q in ((22.9, False), (23.5, True), (0.5, True), (1.0, False)):
+        at_hour(dj, monkeypatch, h)
+        assert dj.quiet_now() is q, h
