@@ -558,6 +558,9 @@ class DJ:
                 if routed.get("occupancy_enabled") is False:  # occ key off: hand occupancy back to the feed
                     self.live.clear_override("occupancy")
                     changed.add("occupancy")
+            if patch.get("auto") is True and not self.inputs.auto:
+                # auto volume back on: back to the schedule's level for this time (drop any old trim)
+                patch = {**patch, "volume_trim": 0}
             for k, v in patch.items():
                 if k not in brain.Inputs.__dataclass_fields__:
                     continue

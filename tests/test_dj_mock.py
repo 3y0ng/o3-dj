@@ -534,3 +534,13 @@ def test_quiet_hours_can_wrap_midnight(dj, monkeypatch):
     for h, q in ((22.9, False), (23.5, True), (0.5, True), (1.0, False)):
         at_hour(dj, monkeypatch, h)
         assert dj.quiet_now() is q, h
+
+
+def test_auto_volume_back_on_returns_to_the_schedule(dj):
+    started(dj)
+    dj.set_inputs({"volume_trim": 6})             # an old trim from before
+    dj.set_inputs({"auto": False, "manual_volume": 45})  # volume set by hand: auto off
+    assert dj.targets["volume"] == 45
+    dj.set_inputs({"auto": True})                 # auto back on: the schedule's level, no trim
+    assert dj.inputs.volume_trim == 0
+    assert dj.targets["volume"] == round(dj.targets["volume_base"])

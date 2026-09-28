@@ -133,6 +133,8 @@ function placeFader(el, v, lo, hi, origin = lo, text = null) {
   if (text != null) el.setAttribute("aria-valuetext", text);
 }
 
+const calibrating = () => !!(S.calibration && S.calibration.wizard && !S.calibration.wizard.proposal);
+
 const wizardFixed = (name) => {
   if (!(S.calibration && S.calibration.wizard)) return false;
   popup(name === "occ" ? "occupancy" : "time", "fixed", "set by the calibration scenario", "var(--dim)");
@@ -146,12 +148,19 @@ const FADERS = {
     get: () => (S.inputs.auto ? clamp(Math.round(S.targets.volume_base + S.inputs.volume_trim), S.limits.min_volume, S.limits.max_volume)
                                : S.inputs.manual_volume),
     set(v) {
-      const i = S.inputs;
-      if (i.auto) setInputs({ volume_trim: clamp(Math.round(v - S.targets.volume_base), -50, 50) });
-      else setInputs({ manual_volume: v });
-      popup("volume", v, i.auto ? `auto ${fmtSigned(i.volume_trim)} trim` : "manual", "var(--blue)");
+      if (calibrating()) {  // the walk-through learns from how far you move it from its suggestion
+        setInputs({ volume_trim: clamp(Math.round(v - S.targets.volume_base), -50, 50) });
+        return popup("volume", v, "calibrating", "var(--blue)");
+      }
+      // Setting the volume by hand takes over from the schedule until auto vol is switched back on.
+      setInputs({ auto: false, manual_volume: v });
+      popup("volume", v, "manual · auto vol off", "var(--blue)");
     },
-    reset() { setInputs({ volume_trim: 0 }, 0); popup("volume", "auto", "trim reset", "var(--blue)"); },
+    reset() {
+      if (calibrating()) { setInputs({ volume_trim: 0 }, 0); return popup("volume", "reset", "calibrating", "var(--blue)"); }
+      setInputs({ auto: true, volume_trim: 0 }, 0);
+      popup("volume", "auto", "back to the schedule", "var(--blue)");
+    },
   },
   energy: {
     label: "energy", opts: { ticks: 11, centre: true }, origin: 0,
@@ -257,8 +266,9 @@ function initKeys() {
   initCalibrateKey();
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
-    // switching to manual keeps the current loudness as the starting point
-    setInputs(auto ? { auto } : { auto, manual_volume: S.targets.volume }, 0);
+    // switching to manual keeps the current loudness as the starting point; back on returns to the schedule
+    setInputs(auto ? { auto, volume_trim: 0 } : { auto, manual_volume: S.targets.volume }, 0);
+    if (auto) popup("volume", "auto", "back to the schedule", "var(--blue)");
   });
   $("#k-clock").addEventListener("click", () => {
     if (S.mode === "live") return popup("time", fmtHour(S.targets.hour), "live mode follows the venue clock", "var(--orange)");
