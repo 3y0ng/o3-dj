@@ -544,3 +544,47 @@ def test_auto_volume_back_on_returns_to_the_schedule(dj):
     dj.set_inputs({"auto": True})                 # auto back on: the schedule's level, no trim
     assert dj.inputs.volume_trim == 0
     assert dj.targets["volume"] == round(dj.targets["volume_base"])
+
+
+# -- tone (EQ) ------------------------------------------------------------------------
+
+def test_eq_applies_to_rooms_in_the_group_with_room_trims(dj):
+    started(dj)
+    office, mezz, entrance = ip_of(dj, "Mock Office"), ip_of(dj, "Mock Mezzanine"), ip_of(dj, "Mock Cafe Entrance")
+    dj.speaker_action("join", mezz)
+    dj.set_eq(bass=3, treble=-1)
+    dj.set_eq(bass=-5, room="Mock Mezzanine")
+    assert dj.player.eq(office) == {"bass": 3, "treble": -1, "loudness": True}
+    assert dj.player.eq(mezz) == {"bass": -2, "treble": -1, "loudness": True}
+    assert dj.player.eq(entrance)["bass"] == 0  # not in the DJ's group: left alone
+    dj.speaker_action("join", entrance)          # joins: gets the venue's tone straight away
+    assert dj.player.eq(entrance)["bass"] == 3
+
+
+def test_eq_is_clamped_saved_and_put_back_if_changed_elsewhere(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    d = started(make_dj(tmp_path, player))
+    d.set_eq(bass=8, treble=4)
+    d.set_eq(bass=9, room="Mock Office")         # 8 + 9 is past the Sonos range
+    assert d.eq_for("Mock Office")["bass"] == 10
+    player.set_eq(player.anchor_ip, bass=0)      # someone changes it in the Sonos app
+    d.tick(30)                                   # the once-a-minute check puts it back
+    assert player.eq(player.anchor_ip)["bass"] == 10
+    b = make_dj(tmp_path, player)
+    assert b.eq["bass"] == 8 and b.eq["rooms"]["Mock Office"] == {"bass": 9, "treble": 0}
+    d.set_eq(room="Mock Office", reset=True)     # a room back to flat drops its trim
+    assert "Mock Office" not in d.eq["rooms"]
+    with pytest.raises(ValueError):
+        d.set_eq(bass=1, room="Nowhere")
+
+
+def test_eq_first_run_keeps_the_speakers_current_tone(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    mezz = next(ip for ip, r in player.rooms.items() if r["name"] == "Mock Mezzanine")
+    player.join(mezz)
+    player.set_eq(player.anchor_ip, bass=2, treble=1)  # set in the Sonos app before the DJ had an EQ
+    player.set_eq(mezz, bass=-1, treble=1)
+    d = started(make_dj(tmp_path, player))
+    assert d.eq["bass"] == 2 and d.eq["treble"] == 1 and "adopt" not in d.eq
+    assert d.eq["rooms"] == {"Mock Mezzanine": {"bass": -3, "treble": 0}}
+    assert player.eq(mezz)["bass"] == -1 and player.eq(player.anchor_ip)["bass"] == 2  # nothing changed

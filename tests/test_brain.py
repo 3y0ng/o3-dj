@@ -22,7 +22,7 @@ def test_evening_is_slower_and_quieter_than_afternoon():
 
 def test_volume_schedule_steps():
     """Newtown's schedule (Sep 2026): base volume by time of day, before busy/empty/rain nudges."""
-    expect = {23.5: 30, 1: 30, 3: 20, 6: 20, 8: 35, 9.99: 35, 11: 50, 12.5: 60, 18.9: 60, 19.5: 50, 20.5: 38, 22.9: 38}
+    expect = {23.5: 35, 1: 35, 3: 20, 6: 20, 8: 35, 9.99: 35, 11: 50, 12.5: 60, 18.9: 60, 19.5: 50, 20.5: 38, 22.9: 38}
     for hour, vol in expect.items():
         assert tgt(hour)["volume"] == vol, hour
     assert tgt(9.9)["energy"] < tgt(10.1)["energy"] + 0.01  # energy stays smooth across the volume steps
