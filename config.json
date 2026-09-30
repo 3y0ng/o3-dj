@@ -30,8 +30,10 @@
     [12, 0.425, 60, "afternoon"],
     [19, 0.317, 60, "afternoon"],
     [19, 0.317, 50, "evening"],
-    [21, 0.25,  50, "evening"],
-    [21, 0.25,  30, "after hours"],
+    [20, 0.283, 50, "evening"],
+    [20, 0.283, 38, "late evening"],
+    [23, 0.203, 38, "late evening"],
+    [23, 0.203, 30, "after hours"],
     [24, 0.18,  30, "after hours"]
   ],
   "reset_trims_on_daypart": true,
