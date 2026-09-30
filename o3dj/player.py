@@ -73,6 +73,22 @@ class SonosPlayer:
         with self.lock:
             self.zones[ip].mute = bool(on)
 
+    def eq(self, ip):
+        """The room's own tone settings (Sonos: bass/treble -10..10, loudness on/off)."""
+        with self.lock:
+            z = self.zones[ip]
+            return {"bass": int(z.bass), "treble": int(z.treble), "loudness": bool(z.loudness)}
+
+    def set_eq(self, ip, bass=None, treble=None, loudness=None):
+        with self.lock:
+            z = self.zones[ip]
+            if bass is not None:
+                z.bass = int(bass)
+            if treble is not None:
+                z.treble = int(treble)
+            if loudness is not None:
+                z.loudness = bool(loudness)
+
     def set_anchor(self, ip):
         with self.lock:
             self.anchor_ip = ip
@@ -287,6 +303,16 @@ class MockPlayer:
 
     def set_mute(self, ip, on):
         self.rooms[ip]["mute"] = bool(on)
+
+    def eq(self, ip):
+        r = self.rooms[ip]
+        return {"bass": r.get("bass", 0), "treble": r.get("treble", 0), "loudness": r.get("loudness", True)}
+
+    def set_eq(self, ip, bass=None, treble=None, loudness=None):
+        r = self.rooms[ip]
+        for k, v in (("bass", bass), ("treble", treble), ("loudness", loudness)):
+            if v is not None:
+                r[k] = v
 
     def set_anchor(self, ip):
         self.anchor_ip = ip

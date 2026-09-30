@@ -72,6 +72,10 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   SoCo caches group state for 5 s, so it polls with `clear_cache()` until the new leader shows up before using `ctrl`.
   Per-room volume offsets (room fader, snapped to `room_offset_steps`) live in `state.json` `room_offsets` by room name;
   the chosen main room in `main_room`. Per-room mute is the Sonos mute, read back in `speakers()` (not stored by the DJ).
+- Tone uses the Sonos EQ (`player.eq`/`set_eq`: bass/treble -10..10, loudness). `state.json` `eq` = venue bass/treble + per-room
+  trims by name; `DJ._apply_eq` keeps in-group rooms there (once a minute, on start/join) and never touches rooms outside the group.
+  First run adopts the speakers' current tone (`eq.adopt`) so switching the DJ on never changes the sound. UI: eq mode remaps the
+  volume/energy faders to bass/treble (`faderFor` in `web/app.js`).
 
 ## Conventions
 

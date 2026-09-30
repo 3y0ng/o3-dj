@@ -95,6 +95,10 @@ class DJ:
         self.fade_skips = cfg.get("skip_fade", True)
 
         self.room_offsets = self.store.data.setdefault("room_offsets", {})  # room name -> volume vs the main setting
+        # tone: venue-wide bass/treble plus optional per-room trims (by room name), applied with the Sonos EQ
+        if "eq" not in self.store.data:  # first run: start from what the speakers are set to now, not flat
+            self.store.data["eq"] = {"bass": 0, "treble": 0, "rooms": {}, "adopt": True}
+        self.eq = self.store.data["eq"]
         self._restore_main()
         self.base_url = self._base_url()
         self.event("DJ ready" + ("" if player.live else " (mock speakers)"))
@@ -343,6 +347,7 @@ class DJ:
             self.upcoming = [t.id for t in picks[1:]]
             self.save()
             self.event(f"DJ started: {picks[0].title}")
+            self._apply_eq()
 
     def play(self):
         with self.lock:
@@ -679,6 +684,8 @@ class DJ:
             self.speakers = p.speakers()
             if self.running:
                 self._apply_volume(max_step=100)
+                if action in ("join", "party", "main"):
+                    self._apply_eq()  # a room that just joined gets the venue's tone straight away
             else:
                 self.volumes = p.volumes()
 
@@ -727,6 +734,73 @@ class DJ:
         offset = float(offset)
         self.room_offsets[name] = min(self.room_offset_steps(), key=lambda s: (abs(s - offset), abs(s)))
         self.save()
+
+    # -- tone (EQ) -------------------------------------------------------------------
+    EQ_RANGE = 10  # Sonos bass/treble go from -10 to +10
+
+    def eq_for(self, name):
+        """A room's tone: the venue's bass/treble plus the room's own trim, and Sonos loudness from config."""
+        r = self.eq["rooms"].get(name, {})
+        c = lambda v: max(-self.EQ_RANGE, min(self.EQ_RANGE, int(v)))
+        return {"bass": c(self.eq["bass"] + r.get("bass", 0)), "treble": c(self.eq["treble"] + r.get("treble", 0)),
+                "loudness": bool(self.cfg.get("eq", {}).get("loudness", True))}
+
+    def set_eq(self, bass=None, treble=None, room=None, reset=False):
+        """Set the venue's tone (room=None) or one room's trim on top of it."""
+        with self.lock:
+            if room is not None and room not in {s["name"] for s in self.speakers}:
+                raise ValueError("unknown room")
+            if self.eq.get("adopt") and self.running:
+                self._adopt_eq()  # start from the speakers' tone, then apply this change on top
+            target = self.eq if room is None else self.eq["rooms"].setdefault(room, {"bass": 0, "treble": 0})
+            if reset:
+                target["bass"] = target["treble"] = 0
+            for k, v in (("bass", bass), ("treble", treble)):
+                if v is not None:
+                    target[k] = max(-self.EQ_RANGE, min(self.EQ_RANGE, int(round(float(v)))))
+            if room is not None and not (target["bass"] or target["treble"]):
+                del self.eq["rooms"][room]
+            self.save()
+            if self.running:
+                self._apply_eq()
+
+    def _apply_eq(self):
+        """Keep the rooms in the DJ's group at their tone, and put it back if someone changes it in the
+        Sonos app. Rooms outside the group are left alone (staff may be using them for something else)."""
+        if self.eq.get("adopt"):
+            self._adopt_eq()
+        for sp in self.speakers:
+            if not sp["in_group"]:
+                continue
+            try:
+                want, have = self.eq_for(sp["name"]), self.player.eq(sp["ip"])
+                diff = {k: v for k, v in want.items() if have.get(k) != v}
+                if diff:
+                    self.player.set_eq(sp["ip"], **diff)
+            except Exception as e:  # tone is a nicety: never let it stop the music
+                log.warning("couldn't set EQ on %s: %s", sp["name"], e)
+
+    def _adopt_eq(self):
+        """Take the speakers' current tone as the starting point: the main room's becomes the venue's,
+        and any room that differs keeps its own as a trim. So turning the DJ on never changes the sound."""
+        group = [sp for sp in self.speakers if sp["in_group"]]
+        main = next((sp for sp in group if sp["coordinator"]), None)
+        if not main:
+            return
+        try:
+            have = {sp["name"]: self.player.eq(sp["ip"]) for sp in group}
+        except Exception as e:
+            log.warning("couldn't read the speakers' EQ: %s", e)
+            return
+        base = have[main["name"]]
+        self.eq.update(bass=base["bass"], treble=base["treble"], rooms={})
+        for name, h in have.items():
+            trim = {"bass": h["bass"] - base["bass"], "treble": h["treble"] - base["treble"]}
+            if trim["bass"] or trim["treble"]:
+                self.eq["rooms"][name] = trim
+        self.eq.pop("adopt", None)
+        self.save()
+        self.event(f"eq: kept the speakers' tone (bass {base['bass']:+d}, treble {base['treble']:+d})")
 
     def _apply_volume(self, max_step=2):
         target = self.targets["volume"]
@@ -818,6 +892,8 @@ class DJ:
                 if n % 5 == 0:
                     self.volumes = self.player.volumes()
                 return
+            if n % 30 == 0:  # about once a minute
+                self._apply_eq()
 
             cur = self.uri_map.get(st["uri"])
             state = st["state"]
@@ -1034,6 +1110,8 @@ class DJ:
                 "speakers": self.speakers,
                 "volumes": self.volumes,
                 "room_offsets": {sp["ip"]: self.room_offset(sp["name"]) for sp in self.speakers},
+                "eq": {"bass": self.eq["bass"], "treble": self.eq["treble"], "rooms": self.eq["rooms"],
+                       "range": self.EQ_RANGE, "effective": {sp["ip"]: self.eq_for(sp["name"]) for sp in self.speakers}},
                 "health": {
                     "source_online": self.online,
                     "speaker_error": self.player.error,

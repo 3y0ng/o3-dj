@@ -202,27 +202,147 @@ const FADERS = {
   },
 };
 
+// ── eq mode ───────────────────────────────────────────────────────────
+// Like the OP-1's modes: the eq key turns the blue and green faders into bass and treble (and the screen
+// into an eq page) until eq is pressed again or nothing is touched for a while. Tapping a room's plate
+// tunes just that room, on top of the all-rooms setting. Nothing new stays on the panel day to day.
+const EQ_IDLE_MS = 10000;
+const eqMode = { on: false, room: null, timer: null };
+const pendingEq = {};  // "" (all rooms) or room name -> {bass?, treble?} sent but not yet confirmed
+const eqTimers = {};
+
+function eqStored(band, room) {
+  const src = room ? (S.eq.rooms || {})[room] || {} : S.eq;
+  return src[band] || 0;
+}
+function eqValue(band, room = eqMode.room) {  // all rooms, or a room's trim on top
+  const p = pendingEq[room || ""];
+  return p && p[band] != null ? p[band] : eqStored(band, room);
+}
+function eqEffective(band, room) {
+  const r = S.eq.range;
+  return clamp(eqValue(band, null) + (room ? eqValue(band, room) : 0), -r, r);
+}
+
+function eqBump() {
+  clearTimeout(eqMode.timer);
+  eqMode.timer = setTimeout(exitEq, EQ_IDLE_MS);
+}
+function enterEq() {
+  if (!S || !S.eq) return;
+  if (S.calibration && S.calibration.wizard) return popup("eq", "later", "finish calibrating first", "var(--dim)");
+  Object.assign(eqMode, { on: true, room: null });
+  eqBump();
+  render(S, true);
+}
+function exitEq() {
+  clearTimeout(eqMode.timer);
+  Object.assign(eqMode, { on: false, room: null });
+  if (S) render(S, true);
+}
+
+function setEq(band, v) {
+  const room = eqMode.room, k = room || "";
+  (pendingEq[k] = pendingEq[k] || {})[band] = v;
+  eqBump();
+  render(S, true);
+  popup(room ? room.toLowerCase() : "all rooms", fmtSigned(v), band + (room ? " vs all rooms" : ""),
+    band === "bass" ? "var(--blue)" : "var(--green)");
+  clearTimeout(eqTimers[k]);
+  eqTimers[k] = setTimeout(async () => {  // one request once the fader settles
+    const sent = { ...pendingEq[k] };
+    try {
+      render(await api("/api/eq", room ? { ...sent, room } : sent));
+    } catch (e) {
+      flashFoot(e.message);
+    }
+    if (JSON.stringify(pendingEq[k]) === JSON.stringify(sent)) delete pendingEq[k];
+    render(S, true);
+  }, 250);
+}
+
+function eqFader(band) {
+  return {
+    label: band, opts: { ticks: 11, centre: true }, origin: 0,
+    min: () => -S.eq.range, max: () => S.eq.range, quantum: 1,
+    get: () => eqValue(band), set: (v) => setEq(band, v), reset: () => setEq(band, 0),
+  };
+}
+const EQ_FADERS = { volume: eqFader("bass"), energy: eqFader("treble") };
+const EQ_WAITING = {
+  set() { eqBump(); popup("eq", "tone", "occupancy and time wait until eq is done", "var(--dim)"); },
+  reset() {},
+};
+function faderFor(name) {
+  if (!eqMode.on) return FADERS[name];
+  return EQ_FADERS[name] || { ...FADERS[name], ...EQ_WAITING };
+}
+
 function initFaders() {
   $$(".enc").forEach((el) => {
-    const f = FADERS[el.dataset.enc];
+    const name = el.dataset.enc, f = FADERS[name];
     el.innerHTML = faderHTML(f.label, f.opts);
     el.title = "drag or scroll · double-click to reset";
-    bindFader(el, f);
+    bindFader(el, {  // whichever job the fader has right now (normal, or bass / treble in eq mode)
+      get quantum() { return faderFor(name).quantum; },
+      min: () => faderFor(name).min(), max: () => faderFor(name).max(),
+      get: () => faderFor(name).get(), set: (v) => faderFor(name).set(v), reset: () => faderFor(name).reset(),
+    });
   });
 }
 
 function renderFaders(s) {
   const i = s.inputs;
   $$(".enc").forEach((el) => {
-    const f = FADERS[el.dataset.enc];
+    const name = el.dataset.enc, f = faderFor(name);
     const v = f.get();
-    const text = { volume: String(v), energy: fmtSigned(v, 2), occ: v + "%", time: fmtHour(v) }[el.dataset.enc];
+    const text = eqMode.on && EQ_FADERS[name] ? `${f.label} ${fmtSigned(v)}`
+      : { volume: String(v), energy: fmtSigned(v, 2), occ: v + "%", time: fmtHour(v) }[name];
     placeFader(el, v, f.min(), f.max(), f.origin ?? f.min(), text);
+    const label = $(".f-label", el);
+    if (label && label.textContent !== f.label) label.textContent = f.label;
+    const ticks = $$(".f-tick", el), mid = (ticks.length - 1) / 2;
+    ticks.forEach((t) => t.classList.toggle("mid", !!(f.opts && f.opts.centre) && +t.dataset.k === mid));
   });
   // dimmed when they have no effect
-  $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
-  $('[data-enc="time"]').classList.toggle("dimmed", i.hour_override == null || s.mode === "live");
-  $('[data-enc="volume"]').classList.toggle("auto", !!i.auto);
+  $('[data-enc="occ"]').classList.toggle("dimmed", eqMode.on || !i.occupancy_enabled);
+  $('[data-enc="time"]').classList.toggle("dimmed", eqMode.on || i.hour_override == null || s.mode === "live");
+  $('[data-enc="volume"]').classList.toggle("auto", !eqMode.on && !!i.auto);
+  $(".encoders").classList.toggle("eq", eqMode.on);
+}
+
+// A picture of the tone: a low shelf (bass) and a high shelf (treble) over 20 Hz..20 kHz.
+function eqCurve(bass, treble) {
+  const pts = [];
+  for (let k = 0; k <= 60; k++) {
+    const f = 20 * Math.pow(1000, k / 60);
+    const low = 1 / (1 + Math.pow(f / 180, 1.6)), high = 1 / (1 + Math.pow(3500 / f, 1.6));
+    pts.push(`${(k / 60 * 200).toFixed(1)} ${(30 - (bass * low + treble * high) * 2.6).toFixed(1)}`);
+  }
+  return "M" + pts.join("L");
+}
+
+function renderEq(s) {
+  const key = $("#k-eq"), view = $("#eq-view");
+  key.hidden = !s.eq;  // older server
+  if (!s.eq) return;
+  const tuned = s.eq.bass || s.eq.treble || Object.keys(s.eq.rooms || {}).length;
+  $(".led", key).className = "led" + (tuned ? " on" : "");
+  key.classList.toggle("hot", eqMode.on);
+  key.title = eqMode.on ? "done (or wait a few seconds)" : "tone: bass and treble for all rooms, or tap a room to tune just that one";
+  if (eqMode.on && s.calibration && s.calibration.wizard) exitEq();
+  view.hidden = !eqMode.on;
+  if (!eqMode.on) return;
+  const room = eqMode.room;
+  const b = eqEffective("bass", room), t = eqEffective("treble", room);
+  $("#eq-target").textContent = room ? room.toLowerCase() : "all rooms";
+  $("#eq-bass").textContent = fmtSigned(b);
+  $("#eq-treble").textContent = fmtSigned(t);
+  const trimmed = Object.keys(s.eq.rooms || {}).length;
+  $("#eq-note").textContent = room
+    ? `this room ${fmtSigned(eqValue("bass", room))} / ${fmtSigned(eqValue("treble", room))} vs all rooms`
+    : trimmed ? `${trimmed} room${trimmed === 1 ? "" : "s"} tuned separately` : "tap a room to tune just that one";
+  $("#eq-path").setAttribute("d", eqCurve(b, t));
 }
 
 let popTimer = null;
@@ -306,6 +426,7 @@ function initKeys() {
     act("/api/speakers", { action: "party" });
   });
   $("#k-scan").addEventListener("click", () => act("/api/speakers", { action: "discover" }));
+  $("#k-eq").addEventListener("click", () => (eqMode.on ? exitEq() : enterEq()));
 
   $("#add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -414,6 +535,7 @@ function render(s, local = false) {
   $(".led", $("#k-clock")).classList.toggle("on", i.hour_override == null);
   renderMode(s);
   renderCalibration(s);
+  renderEq(s);
   $("em", $("#k-occ")).textContent = s.mode === "live" && (s.feeds || {}).occupancy_src === "override" ? "occ · live" : "occ";
   $(".led", $("#k-play")).className = "led" + (playing ? " on green" : "");
   $("#play-icon").innerHTML = playing
@@ -676,6 +798,15 @@ function initRoomStrip(el) {
     const sp = S.speakers.find((x) => x.ip === ip);
     if (sp) roomAction(sp, b.dataset.act);
   }));
+  // in eq mode, the room's plate picks it for tuning (tap again for all rooms)
+  $(".ch-plate", el).addEventListener("click", () => {
+    const sp = S && S.speakers.find((x) => x.ip === ip);
+    if (!eqMode.on || !sp) return;
+    eqMode.room = eqMode.room === sp.name ? null : sp.name;
+    eqBump();
+    render(S, true);
+    popup("eq", eqMode.room ? sp.name.toLowerCase() : "all rooms", eqMode.room ? "tap again for all rooms" : "", "var(--blue)");
+  });
   // the fader's value is the detent index; each detent is an offset from room_offset_steps
   bindFader($(".rfader", el), {
     min: () => 0, max: () => roomSteps().length - 1, quantum: 1,
@@ -708,8 +839,15 @@ function renderRooms(s) {
     el.classList.toggle("off", !sp.in_group);
     el.classList.toggle("muted", !!sp.muted);
     $(".ch-head .led", el).className = "led" + (sp.in_group ? " on" : "") + (sp.coordinator ? " green" : "");
-    $(".lcd-st", el).textContent = !sp.in_group ? "off" : sp.muted ? "muted" : sp.coordinator ? "main" : "synced";
-    $(".lcd-vol", el).textContent = vol != null && sp.in_group ? "vol " + vol : "";
+    el.classList.toggle("eq-pick", eqMode.on);
+    el.classList.toggle("eq-sel", eqMode.on && eqMode.room === sp.name);
+    if (eqMode.on && s.eq) {  // the LCD shows each room's tone while tuning
+      $(".lcd-st", el).textContent = `b${fmtSigned(eqEffective("bass", sp.name))} t${fmtSigned(eqEffective("treble", sp.name))}`;
+      $(".lcd-vol", el).textContent = s.eq.rooms && s.eq.rooms[sp.name] ? "own" : "";
+    } else {
+      $(".lcd-st", el).textContent = !sp.in_group ? "off" : sp.muted ? "muted" : sp.coordinator ? "main" : "synced";
+      $(".lcd-vol", el).textContent = vol != null && sp.in_group ? "vol " + vol : "";
+    }
     const on = $(".on-sw", el);
     on.classList.toggle("on", sp.in_group);
     on.setAttribute("aria-checked", String(sp.in_group));
