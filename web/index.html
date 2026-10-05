@@ -99,6 +99,18 @@
           </div>
           <div class="cv-legend" id="cv-legend"></div>
         </div>
+        <!-- eq: takes over the screen while tuning the tone; the blue and green faders become bass and treble -->
+        <div class="cal-view eq-view" id="eq-view" hidden aria-live="polite">
+          <div class="cv-head"><span class="c-blue">eq</span><span class="c-white" id="eq-target">all rooms</span></div>
+          <div class="eq-body">
+            <svg class="eq-curve" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" y1="30" x2="200" y2="30" class="eq-zero"/>
+              <path id="eq-path" class="eq-line" d=""/>
+            </svg>
+            <div class="eq-vals"><span>bass <b class="c-blue" id="eq-bass"></b></span><span>treble <b class="c-green" id="eq-treble"></b></span><span class="c-dim" id="eq-note"></span></div>
+          </div>
+          <div class="cv-legend"><span><span class="chip">blue</span>bass</span><span><span class="chip">green</span>treble</span><span><span class="chip">room</span>tune one room</span><span><span class="chip">eq</span>done</span></div>
+        </div>
         <div class="popup" id="popup" aria-live="polite"><div class="pop-label"></div><div class="pop-val"></div><div class="pop-sub"></div></div>
       </div>
     </div>
@@ -168,6 +180,7 @@
     <div class="rooms">
       <div class="rooms-head">
         <h3>rooms</h3>
+        <button class="mini" id="k-eq" title="tone: bass and treble for all rooms, or tap a room to tune just that one"><span class="led"></span>eq</button>
         <button class="mini" id="k-party" title="join every speaker into one synced group">party mode</button>
         <button class="mini" id="k-scan" title="look for speakers again">scan</button>
       </div>

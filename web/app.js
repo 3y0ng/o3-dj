@@ -133,6 +133,8 @@ function placeFader(el, v, lo, hi, origin = lo, text = null) {
   if (text != null) el.setAttribute("aria-valuetext", text);
 }
 
+const calibrating = () => !!(S.calibration && S.calibration.wizard && !S.calibration.wizard.proposal);
+
 const wizardFixed = (name) => {
   if (!(S.calibration && S.calibration.wizard)) return false;
   popup(name === "occ" ? "occupancy" : "time", "fixed", "set by the calibration scenario", "var(--dim)");
@@ -146,12 +148,19 @@ const FADERS = {
     get: () => (S.inputs.auto ? clamp(Math.round(S.targets.volume_base + S.inputs.volume_trim), S.limits.min_volume, S.limits.max_volume)
                                : S.inputs.manual_volume),
     set(v) {
-      const i = S.inputs;
-      if (i.auto) setInputs({ volume_trim: clamp(Math.round(v - S.targets.volume_base), -50, 50) });
-      else setInputs({ manual_volume: v });
-      popup("volume", v, i.auto ? `auto ${fmtSigned(i.volume_trim)} trim` : "manual", "var(--blue)");
+      if (calibrating()) {  // the walk-through learns from how far you move it from its suggestion
+        setInputs({ volume_trim: clamp(Math.round(v - S.targets.volume_base), -50, 50) });
+        return popup("volume", v, "calibrating", "var(--blue)");
+      }
+      // Setting the volume by hand takes over from the schedule until auto vol is switched back on.
+      setInputs({ auto: false, manual_volume: v });
+      popup("volume", v, "manual · auto vol off", "var(--blue)");
     },
-    reset() { setInputs({ volume_trim: 0 }, 0); popup("volume", "auto", "trim reset", "var(--blue)"); },
+    reset() {
+      if (calibrating()) { setInputs({ volume_trim: 0 }, 0); return popup("volume", "reset", "calibrating", "var(--blue)"); }
+      setInputs({ auto: true, volume_trim: 0 }, 0);
+      popup("volume", "auto", "back to the schedule", "var(--blue)");
+    },
   },
   energy: {
     label: "energy", opts: { ticks: 11, centre: true }, origin: 0,
@@ -193,27 +202,147 @@ const FADERS = {
   },
 };
 
+// ── eq mode ───────────────────────────────────────────────────────────
+// Like the OP-1's modes: the eq key turns the blue and green faders into bass and treble (and the screen
+// into an eq page) until eq is pressed again or nothing is touched for a while. Tapping a room's plate
+// tunes just that room, on top of the all-rooms setting. Nothing new stays on the panel day to day.
+const EQ_IDLE_MS = 10000;
+const eqMode = { on: false, room: null, timer: null };
+const pendingEq = {};  // "" (all rooms) or room name -> {bass?, treble?} sent but not yet confirmed
+const eqTimers = {};
+
+function eqStored(band, room) {
+  const src = room ? (S.eq.rooms || {})[room] || {} : S.eq;
+  return src[band] || 0;
+}
+function eqValue(band, room = eqMode.room) {  // all rooms, or a room's trim on top
+  const p = pendingEq[room || ""];
+  return p && p[band] != null ? p[band] : eqStored(band, room);
+}
+function eqEffective(band, room) {
+  const r = S.eq.range;
+  return clamp(eqValue(band, null) + (room ? eqValue(band, room) : 0), -r, r);
+}
+
+function eqBump() {
+  clearTimeout(eqMode.timer);
+  eqMode.timer = setTimeout(exitEq, EQ_IDLE_MS);
+}
+function enterEq() {
+  if (!S || !S.eq) return;
+  if (S.calibration && S.calibration.wizard) return popup("eq", "later", "finish calibrating first", "var(--dim)");
+  Object.assign(eqMode, { on: true, room: null });
+  eqBump();
+  render(S, true);
+}
+function exitEq() {
+  clearTimeout(eqMode.timer);
+  Object.assign(eqMode, { on: false, room: null });
+  if (S) render(S, true);
+}
+
+function setEq(band, v) {
+  const room = eqMode.room, k = room || "";
+  (pendingEq[k] = pendingEq[k] || {})[band] = v;
+  eqBump();
+  render(S, true);
+  popup(room ? room.toLowerCase() : "all rooms", fmtSigned(v), band + (room ? " vs all rooms" : ""),
+    band === "bass" ? "var(--blue)" : "var(--green)");
+  clearTimeout(eqTimers[k]);
+  eqTimers[k] = setTimeout(async () => {  // one request once the fader settles
+    const sent = { ...pendingEq[k] };
+    try {
+      render(await api("/api/eq", room ? { ...sent, room } : sent));
+    } catch (e) {
+      flashFoot(e.message);
+    }
+    if (JSON.stringify(pendingEq[k]) === JSON.stringify(sent)) delete pendingEq[k];
+    render(S, true);
+  }, 250);
+}
+
+function eqFader(band) {
+  return {
+    label: band, opts: { ticks: 11, centre: true }, origin: 0,
+    min: () => -S.eq.range, max: () => S.eq.range, quantum: 1,
+    get: () => eqValue(band), set: (v) => setEq(band, v), reset: () => setEq(band, 0),
+  };
+}
+const EQ_FADERS = { volume: eqFader("bass"), energy: eqFader("treble") };
+const EQ_WAITING = {
+  set() { eqBump(); popup("eq", "tone", "occupancy and time wait until eq is done", "var(--dim)"); },
+  reset() {},
+};
+function faderFor(name) {
+  if (!eqMode.on) return FADERS[name];
+  return EQ_FADERS[name] || { ...FADERS[name], ...EQ_WAITING };
+}
+
 function initFaders() {
   $$(".enc").forEach((el) => {
-    const f = FADERS[el.dataset.enc];
+    const name = el.dataset.enc, f = FADERS[name];
     el.innerHTML = faderHTML(f.label, f.opts);
     el.title = "drag or scroll · double-click to reset";
-    bindFader(el, f);
+    bindFader(el, {  // whichever job the fader has right now (normal, or bass / treble in eq mode)
+      get quantum() { return faderFor(name).quantum; },
+      min: () => faderFor(name).min(), max: () => faderFor(name).max(),
+      get: () => faderFor(name).get(), set: (v) => faderFor(name).set(v), reset: () => faderFor(name).reset(),
+    });
   });
 }
 
 function renderFaders(s) {
   const i = s.inputs;
   $$(".enc").forEach((el) => {
-    const f = FADERS[el.dataset.enc];
+    const name = el.dataset.enc, f = faderFor(name);
     const v = f.get();
-    const text = { volume: String(v), energy: fmtSigned(v, 2), occ: v + "%", time: fmtHour(v) }[el.dataset.enc];
+    const text = eqMode.on && EQ_FADERS[name] ? `${f.label} ${fmtSigned(v)}`
+      : { volume: String(v), energy: fmtSigned(v, 2), occ: v + "%", time: fmtHour(v) }[name];
     placeFader(el, v, f.min(), f.max(), f.origin ?? f.min(), text);
+    const label = $(".f-label", el);
+    if (label && label.textContent !== f.label) label.textContent = f.label;
+    const ticks = $$(".f-tick", el), mid = (ticks.length - 1) / 2;
+    ticks.forEach((t) => t.classList.toggle("mid", !!(f.opts && f.opts.centre) && +t.dataset.k === mid));
   });
   // dimmed when they have no effect
-  $('[data-enc="occ"]').classList.toggle("dimmed", !i.occupancy_enabled);
-  $('[data-enc="time"]').classList.toggle("dimmed", i.hour_override == null || s.mode === "live");
-  $('[data-enc="volume"]').classList.toggle("auto", !!i.auto);
+  $('[data-enc="occ"]').classList.toggle("dimmed", eqMode.on || !i.occupancy_enabled);
+  $('[data-enc="time"]').classList.toggle("dimmed", eqMode.on || i.hour_override == null || s.mode === "live");
+  $('[data-enc="volume"]').classList.toggle("auto", !eqMode.on && !!i.auto);
+  $(".encoders").classList.toggle("eq", eqMode.on);
+}
+
+// A picture of the tone: a low shelf (bass) and a high shelf (treble) over 20 Hz..20 kHz.
+function eqCurve(bass, treble) {
+  const pts = [];
+  for (let k = 0; k <= 60; k++) {
+    const f = 20 * Math.pow(1000, k / 60);
+    const low = 1 / (1 + Math.pow(f / 180, 1.6)), high = 1 / (1 + Math.pow(3500 / f, 1.6));
+    pts.push(`${(k / 60 * 200).toFixed(1)} ${(30 - (bass * low + treble * high) * 2.6).toFixed(1)}`);
+  }
+  return "M" + pts.join("L");
+}
+
+function renderEq(s) {
+  const key = $("#k-eq"), view = $("#eq-view");
+  key.hidden = !s.eq;  // older server
+  if (!s.eq) return;
+  const tuned = s.eq.bass || s.eq.treble || Object.keys(s.eq.rooms || {}).length;
+  $(".led", key).className = "led" + (tuned ? " on" : "");
+  key.classList.toggle("hot", eqMode.on);
+  key.title = eqMode.on ? "done (or wait a few seconds)" : "tone: bass and treble for all rooms, or tap a room to tune just that one";
+  if (eqMode.on && s.calibration && s.calibration.wizard) exitEq();
+  view.hidden = !eqMode.on;
+  if (!eqMode.on) return;
+  const room = eqMode.room;
+  const b = eqEffective("bass", room), t = eqEffective("treble", room);
+  $("#eq-target").textContent = room ? room.toLowerCase() : "all rooms";
+  $("#eq-bass").textContent = fmtSigned(b);
+  $("#eq-treble").textContent = fmtSigned(t);
+  const trimmed = Object.keys(s.eq.rooms || {}).length;
+  $("#eq-note").textContent = room
+    ? `this room ${fmtSigned(eqValue("bass", room))} / ${fmtSigned(eqValue("treble", room))} vs all rooms`
+    : trimmed ? `${trimmed} room${trimmed === 1 ? "" : "s"} tuned separately` : "tap a room to tune just that one";
+  $("#eq-path").setAttribute("d", eqCurve(b, t));
 }
 
 let popTimer = null;
@@ -257,8 +386,9 @@ function initKeys() {
   initCalibrateKey();
   $("#k-auto").addEventListener("click", () => {
     const auto = !S.inputs.auto;
-    // switching to manual keeps the current loudness as the starting point
-    setInputs(auto ? { auto } : { auto, manual_volume: S.targets.volume }, 0);
+    // switching to manual keeps the current loudness as the starting point; back on returns to the schedule
+    setInputs(auto ? { auto, volume_trim: 0 } : { auto, manual_volume: S.targets.volume }, 0);
+    if (auto) popup("volume", "auto", "back to the schedule", "var(--blue)");
   });
   $("#k-clock").addEventListener("click", () => {
     if (S.mode === "live") return popup("time", fmtHour(S.targets.hour), "live mode follows the venue clock", "var(--orange)");
@@ -296,6 +426,7 @@ function initKeys() {
     act("/api/speakers", { action: "party" });
   });
   $("#k-scan").addEventListener("click", () => act("/api/speakers", { action: "discover" }));
+  $("#k-eq").addEventListener("click", () => (eqMode.on ? exitEq() : enterEq()));
 
   $("#add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -404,6 +535,7 @@ function render(s, local = false) {
   $(".led", $("#k-clock")).classList.toggle("on", i.hour_override == null);
   renderMode(s);
   renderCalibration(s);
+  renderEq(s);
   $("em", $("#k-occ")).textContent = s.mode === "live" && (s.feeds || {}).occupancy_src === "override" ? "occ · live" : "occ";
   $(".led", $("#k-play")).className = "led" + (playing ? " on green" : "");
   $("#play-icon").innerHTML = playing
@@ -669,6 +801,15 @@ function initRoomStrip(el) {
     const sp = S.speakers.find((x) => x.ip === ip);
     if (sp) roomAction(sp, b.dataset.act);
   }));
+  // in eq mode, the room's plate picks it for tuning (tap again for all rooms)
+  $(".ch-plate", el).addEventListener("click", () => {
+    const sp = S && S.speakers.find((x) => x.ip === ip);
+    if (!eqMode.on || !sp) return;
+    eqMode.room = eqMode.room === sp.name ? null : sp.name;
+    eqBump();
+    render(S, true);
+    popup("eq", eqMode.room ? sp.name.toLowerCase() : "all rooms", eqMode.room ? "tap again for all rooms" : "", "var(--blue)");
+  });
   // the fader's value is the detent index; each detent is an offset from room_offset_steps
   bindFader($(".rfader", el), {
     min: () => 0, max: () => roomSteps().length - 1, quantum: 1,
@@ -701,8 +842,15 @@ function renderRooms(s) {
     el.classList.toggle("off", !sp.in_group);
     el.classList.toggle("muted", !!sp.muted);
     $(".ch-head .led", el).className = "led" + (sp.in_group ? " on" : "") + (sp.coordinator ? " green" : "");
-    $(".lcd-st", el).textContent = !sp.in_group ? "off" : sp.muted ? "muted" : sp.coordinator ? "main" : "synced";
-    $(".lcd-vol", el).textContent = vol != null && sp.in_group ? "vol " + vol : "";
+    el.classList.toggle("eq-pick", eqMode.on);
+    el.classList.toggle("eq-sel", eqMode.on && eqMode.room === sp.name);
+    if (eqMode.on && s.eq) {  // the LCD shows each room's tone while tuning
+      $(".lcd-st", el).textContent = `b${fmtSigned(eqEffective("bass", sp.name))} t${fmtSigned(eqEffective("treble", sp.name))}`;
+      $(".lcd-vol", el).textContent = s.eq.rooms && s.eq.rooms[sp.name] ? "own" : "";
+    } else {
+      $(".lcd-st", el).textContent = !sp.in_group ? "off" : sp.muted ? "muted" : sp.coordinator ? "main" : "synced";
+      $(".lcd-vol", el).textContent = vol != null && sp.in_group ? "vol " + vol : "";
+    }
     const on = $(".on-sw", el);
     on.classList.toggle("on", sp.in_group);
     on.setAttribute("aria-checked", String(sp.in_group));
@@ -746,9 +894,22 @@ function renderStrip(s) {
 // The speakers stream from this server's /media URLs, so the browser can fetch the same file and follow
 // the speaker's position. On by default in demo mode; the key's choice is remembered per device.
 const LISTEN_KEY = "o3dj.listen";
-const listen = { audio: new Audio(), pref: null, blocked: false, starting: false, told: false, uri: null, start: null, rtt: 0 };
-listen.audio.preload = "auto";
-listen.audio.preservesPitch = true;  // speed nudges below shouldn't bend the pitch
+// Two players take turns so a new song can fade in while the last one fades out, like the speakers' crossfade.
+const XFADE_S = 5;
+function newListenAudio() {
+  const a = new Audio();
+  a.preload = "auto";
+  a.preservesPitch = true;  // speed nudges below shouldn't bend the pitch
+  a.addEventListener("playing", () => S && renderListenKey(listenOn(S)));
+  a.addEventListener("pause", () => S && renderListenKey(listenOn(S)));
+  return a;
+}
+const listen = { els: [newListenAudio(), newListenAudio()], cur: 0, pref: null, blocked: false, starting: false, told: false,
+                 uri: null, start: null, rtt: 0, base: 1, gain: 1, out: null, fadeTimer: null, unlocked: false };
+Object.defineProperty(listen, "audio", { get: () => listen.els[listen.cur] });
+Object.defineProperty(listen, "spare", { get: () => listen.els[1 - listen.cur] });
+// iOS Safari ignores audio.volume, so it can't fade: there the new song simply takes over, as before.
+const CAN_FADE = (() => { const t = new Audio(); t.volume = 0.5; return t.volume === 0.5; })();
 try { listen.pref = localStorage.getItem(LISTEN_KEY); } catch (e) { /* storage blocked */ }
 
 function listenOn(s) { return listen.pref ? listen.pref === "on" : s.mode !== "live"; }
@@ -771,16 +932,61 @@ function noteSpeakerClock(st) {
     listen.start = Math.min(listen.start, est);
   }
 }
+function applyListenVolume() {
+  listen.audio.volume = clamp(listen.base * listen.gain, 0, 1);
+  if (listen.out) listen.out.el.volume = clamp(listen.base * listen.out.gain, 0, 1);
+}
+
+function endCrossfade() {
+  clearInterval(listen.fadeTimer);
+  if (listen.out) listen.out.el.pause();
+  listen.out = null;
+  listen.gain = 1;
+  applyListenVolume();
+}
+
+// Hand over to the spare player: the old song fades out while the new one fades in (equal power, so the
+// overall level holds steady through the overlap).
+function crossfadeToSpare() {
+  endCrossfade();
+  const old = listen.audio;
+  listen.cur = 1 - listen.cur;
+  listen.out = { el: old, gain: 1 };
+  listen.gain = 0;
+  applyListenVolume();
+  const t0 = performance.now();
+  listen.fadeTimer = setInterval(() => {
+    const k = clamp((performance.now() - t0) / (XFADE_S * 1000), 0, 1);
+    listen.gain = Math.sin(k * Math.PI / 2);
+    if (listen.out) listen.out.gain = Math.cos(k * Math.PI / 2);
+    applyListenVolume();
+    if (k >= 1) endCrossfade();
+  }, 50);
+}
+
+// Browsers (iOS especially) only let a player make sound once it has been started from a tap; start the
+// spare silently during the first tap so it can take over later without one.
+function unlockSpare() {
+  if (listen.unlocked || !listen.audio.src) return;
+  listen.unlocked = true;
+  const b = listen.spare;
+  b.muted = true;
+  b.src = listen.audio.src;
+  b.play().then(() => { b.pause(); b.muted = false; }).catch(() => { b.muted = false; listen.unlocked = false; });
+}
+
 function listenTarget() { return listen.start == null ? 0 : performance.now() / 1000 - listen.start; }
 
 function syncListen(s) {
-  const a = listen.audio, st = s.status || {};
+  let a = listen.audio;
+  const st = s.status || {};
   const on = listenOn(s);
   const path = s.running && !s.paused && st.state === "PLAYING" ? mediaPath(st.uri) : null;  // null: not our music
   // On only by the demo default: a page in the background (another tab, a hidden window) stays quiet, so
   // a forgotten tab doesn't play over the one you're using. Switched on by hand: keeps playing (e.g. phone locked).
   const background = document.hidden && listen.pref !== "on";
   if (!on || !path || background) {
+    endCrossfade();
     if (!a.paused) a.pause();
     listen.blocked = false;
     return renderListenKey(on);
@@ -789,8 +995,15 @@ function syncListen(s) {
   // heard), without the main room's own offset or mute. The device volume sets the overall level.
   const main = s.speakers.find((sp) => sp.coordinator);
   const vol = main && s.volumes ? s.volumes[main.ip] : null;
-  a.volume = vol != null ? clamp((vol - (s.room_offsets?.[main.ip] || 0)) / s.limits.max_volume, 0, 1) : 1;
+  listen.base = vol != null ? clamp((vol - (s.room_offsets?.[main.ip] || 0)) / s.limits.max_volume, 0, 1) : 1;
+  applyListenVolume();
   if (a.dataset.path !== path) {
+    if (CAN_FADE && a.dataset.path && !a.paused) {  // the speakers moved on to the next song: crossfade like they do
+      crossfadeToSpare();
+      a = listen.audio;
+    } else {
+      endCrossfade();
+    }
     a.dataset.path = path;
     a.src = path;
     a.playbackRate = 1;
@@ -806,7 +1019,7 @@ function syncListen(s) {
   }
   if (a.paused && !listen.starting) {
     listen.starting = true;
-    a.play().then(() => { listen.blocked = false; }).catch((e) => {
+    a.play().then(() => { listen.blocked = false; unlockSpare(); }).catch((e) => {
       if (e.name !== "NotAllowedError") return;
       listen.blocked = true;  // browsers only start sound after a tap; the next tap anywhere starts it
       if (!listen.told) { listen.told = true; popup("listen", "tap", "tap anywhere to hear it on this device", "var(--green)"); }
@@ -827,10 +1040,8 @@ function renderListenKey(on) {
 
 document.addEventListener("visibilitychange", () => S && syncListen(S));
 for (const ev of ["click", "touchend", "keydown"]) {
-  document.addEventListener(ev, () => { if (listen.blocked && S) syncListen(S); }, true);
+  document.addEventListener(ev, () => { if (listen.blocked && S) syncListen(S); unlockSpare(); }, true);
 }
-listen.audio.addEventListener("playing", () => S && renderListenKey(listenOn(S)));
-listen.audio.addEventListener("pause", () => S && renderListenKey(listenOn(S)));
 
 // ── tape reels: left pack unwinds onto the right as the track plays ──────────
 const REEL = { l: [27, 28], r: [93, 28], guideL: [16, 64], guideR: [104, 64], gr: 2.4, core: 6.5, full: 20 };

@@ -95,6 +95,16 @@ def create_app(dj):
         dj.refresh_status()
         return ok()
 
+    @app.post("/api/eq")
+    def eq():
+        """{bass?, treble?, room?, reset?}: the venue's tone, or one room's trim on top of it."""
+        body = request.get_json(force=True)
+        try:
+            dj.set_eq(body.get("bass"), body.get("treble"), body.get("room"), bool(body.get("reset")))
+        except (ValueError, TypeError) as e:
+            return jsonify({"error": str(e)}), 400
+        return ok()
+
     @app.post("/api/speakers")
     def speakers():
         body = request.get_json(force=True)

@@ -228,7 +228,7 @@ def main():
                            budget, pilot=True)
             if budget is not None:
                 budget -= spent
-        print(f"\nListen in data/suno_pilot/ next to each reference and score 1-5 (see suno/styles.json 'pilot').")
+        print("\nListen in data/suno_pilot/ next to each reference and score 1-5 (see suno/styles.json 'pilot').")
     elif args.style:
         if args.style not in styles["styles"]:
             ap.error(f"unknown style {args.style}; try --list")

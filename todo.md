@@ -186,3 +186,6 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [ ] Confirm Chillify's licence allows commercial/venue playback before the pilot.
 - [ ] `.claude/launch.json` preview config can't reach the speakers (macOS Local Network permission for the app);
   run live from a terminal.
+- [ ] **listen on iPhone still hard-cuts between songs**: iOS Safari ignores `audio.volume`, so the listen crossfade
+  (two players, equal-power, `XFADE_S` in `web/app.js`) only works on desktop/Android. A Web Audio gain would fix it but
+  suspends when the phone locks.

@@ -20,6 +20,14 @@ def test_evening_is_slower_and_quieter_than_afternoon():
     assert eve["volume"] < aft["volume"]
 
 
+def test_volume_schedule_steps():
+    """Newtown's schedule (Sep 2026): base volume by time of day, before busy/empty/rain nudges."""
+    expect = {23.5: 35, 1: 35, 3: 20, 6: 20, 8: 35, 9.99: 35, 11: 50, 12.5: 60, 18.9: 60, 19.5: 50, 20.5: 38, 22.9: 38}
+    for hour, vol in expect.items():
+        assert tgt(hour)["volume"] == vol, hour
+    assert tgt(9.9)["energy"] < tgt(10.1)["energy"] + 0.01  # energy stays smooth across the volume steps
+
+
 def test_hour_override_beats_clock():
     assert tgt(14, hour_override=22)["hour"] == 22
     assert tgt(14, hour_override=22)["energy"] == tgt(22)["energy"]
@@ -54,8 +62,8 @@ def test_occupancy_bands_counter_the_room():
         assert (t["bpm_shift"], t["instrumental"]) == (bpm, instr), occ
 
 
-def test_volume_rises_as_the_room_fills():
-    vols = [tgt(14, occupancy=o, occupancy_enabled=True)["volume"] for o in (10, 50, 80, 100)]
+def test_volume_rises_as_the_room_fills():  # 8am: a quiet hour, so there's room under max_volume to get louder
+    vols = [tgt(8, occupancy=o, occupancy_enabled=True)["volume"] for o in (10, 50, 80, 100)]
     assert vols == sorted(vols) and vols[-1] > vols[0]
 
 

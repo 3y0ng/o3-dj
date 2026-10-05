@@ -497,3 +497,110 @@ def test_mock_tracks_last_their_real_length_when_known():
     assert p.status()["uri"] == "b"  # 0.6 s fallback, not 0.3
     time.sleep(0.35)
     assert p.status()["uri"] == "c"
+
+
+# -- quiet hours: music off 5-7am ----------------------------------------------------
+
+def at_hour(dj, monkeypatch, hour):
+    monkeypatch.setattr(dj, "hour_now", lambda: hour)
+
+
+def test_quiet_hours_pause_then_resume(dj, monkeypatch):
+    at_hour(dj, monkeypatch, 4.9)
+    started(dj)
+    at_hour(dj, monkeypatch, 5.0); dj.tick(1)
+    assert dj.paused and dj.player.status()["state"] == "PAUSED_PLAYBACK"
+    at_hour(dj, monkeypatch, 6.5); dj.tick(2)
+    assert dj.paused
+    at_hour(dj, monkeypatch, 7.0); dj.tick(3)
+    assert not dj.paused and dj.player.status()["state"] == "PLAYING"
+
+
+def test_staff_can_play_during_quiet_hours(dj, monkeypatch):
+    at_hour(dj, monkeypatch, 4.9)
+    started(dj)
+    at_hour(dj, monkeypatch, 5.1); dj.tick(1)
+    dj.play(); dj.tick(2); dj.tick(3)
+    assert not dj.paused and dj.player.status()["state"] == "PLAYING"  # not paused again
+
+
+def test_quiet_hours_leave_a_paused_dj_alone(dj, monkeypatch):
+    at_hour(dj, monkeypatch, 4.9)
+    started(dj)
+    dj.pause(); dj.tick(1)
+    at_hour(dj, monkeypatch, 5.5); dj.tick(2)
+    at_hour(dj, monkeypatch, 7.5); dj.tick(3)
+    assert dj.paused  # quiet hours didn't pause it, so they don't resume it
+
+
+def test_quiet_hours_resume_after_a_restart(tmp_path, monkeypatch):
+    player = MockPlayer(track_seconds=1000)
+    a = make_dj(tmp_path, player)
+    at_hour(a, monkeypatch, 4.9)
+    started(a)
+    at_hour(a, monkeypatch, 5.2); a.tick(1)
+    b = make_dj(tmp_path, player)  # restarted during quiet hours
+    b.adopt()
+    at_hour(b, monkeypatch, 7.1); b.tick(0); b.tick(1)
+    assert b.running and player.status()["state"] == "PLAYING"
+
+
+def test_quiet_hours_can_wrap_midnight(dj, monkeypatch):
+    dj.cfg = dict(dj.cfg, quiet_hours=[[23, 1]])
+    for h, q in ((22.9, False), (23.5, True), (0.5, True), (1.0, False)):
+        at_hour(dj, monkeypatch, h)
+        assert dj.quiet_now() is q, h
+
+
+def test_auto_volume_back_on_returns_to_the_schedule(dj):
+    started(dj)
+    dj.set_inputs({"volume_trim": 6})             # an old trim from before
+    dj.set_inputs({"auto": False, "manual_volume": 45})  # volume set by hand: auto off
+    assert dj.targets["volume"] == 45
+    dj.set_inputs({"auto": True})                 # auto back on: the schedule's level, no trim
+    assert dj.inputs.volume_trim == 0
+    assert dj.targets["volume"] == round(dj.targets["volume_base"])
+
+
+# -- tone (EQ) ------------------------------------------------------------------------
+
+def test_eq_applies_to_rooms_in_the_group_with_room_trims(dj):
+    started(dj)
+    office, mezz, entrance = ip_of(dj, "Mock Office"), ip_of(dj, "Mock Mezzanine"), ip_of(dj, "Mock Cafe Entrance")
+    dj.speaker_action("join", mezz)
+    dj.set_eq(bass=3, treble=-1)
+    dj.set_eq(bass=-5, room="Mock Mezzanine")
+    assert dj.player.eq(office) == {"bass": 3, "treble": -1, "loudness": True}
+    assert dj.player.eq(mezz) == {"bass": -2, "treble": -1, "loudness": True}
+    assert dj.player.eq(entrance)["bass"] == 0  # not in the DJ's group: left alone
+    dj.speaker_action("join", entrance)          # joins: gets the venue's tone straight away
+    assert dj.player.eq(entrance)["bass"] == 3
+
+
+def test_eq_is_clamped_saved_and_put_back_if_changed_elsewhere(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    d = started(make_dj(tmp_path, player))
+    d.set_eq(bass=8, treble=4)
+    d.set_eq(bass=9, room="Mock Office")         # 8 + 9 is past the Sonos range
+    assert d.eq_for("Mock Office")["bass"] == 10
+    player.set_eq(player.anchor_ip, bass=0)      # someone changes it in the Sonos app
+    d.tick(30)                                   # the once-a-minute check puts it back
+    assert player.eq(player.anchor_ip)["bass"] == 10
+    b = make_dj(tmp_path, player)
+    assert b.eq["bass"] == 8 and b.eq["rooms"]["Mock Office"] == {"bass": 9, "treble": 0}
+    d.set_eq(room="Mock Office", reset=True)     # a room back to flat drops its trim
+    assert "Mock Office" not in d.eq["rooms"]
+    with pytest.raises(ValueError):
+        d.set_eq(bass=1, room="Nowhere")
+
+
+def test_eq_first_run_keeps_the_speakers_current_tone(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    mezz = next(ip for ip, r in player.rooms.items() if r["name"] == "Mock Mezzanine")
+    player.join(mezz)
+    player.set_eq(player.anchor_ip, bass=2, treble=1)  # set in the Sonos app before the DJ had an EQ
+    player.set_eq(mezz, bass=-1, treble=1)
+    d = started(make_dj(tmp_path, player))
+    assert d.eq["bass"] == 2 and d.eq["treble"] == 1 and "adopt" not in d.eq
+    assert d.eq["rooms"] == {"Mock Mezzanine": {"bass": -3, "treble": 0}}
+    assert player.eq(mezz)["bass"] == -1 and player.eq(player.anchor_ip)["bass"] == 2  # nothing changed

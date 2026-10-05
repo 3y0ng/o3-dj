@@ -94,6 +94,7 @@ def _walk(dj, louder=0):
 
 def test_walkthrough_plays_each_scenario_and_applies(tmp_path):
     dj = make_dj(tmp_path)
+    dj.cfg = dict(dj.cfg, max_volume=100)  # the afternoon schedule sits at the default cap; "louder" needs headroom
     started(dj)
     dj.start_wizard()
     sc = calibrate.SCENARIOS[0]
