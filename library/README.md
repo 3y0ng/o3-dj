@@ -13,3 +13,27 @@ Three ways, all picked up automatically (folders are rescanned every ~10 min, or
    (anything with `name` and `load() -> list[Track]`) and add it to `Library.sources`.
 
 Only use music you're licensed to play in a commercial venue.
+
+## Suno
+
+Songs are made by hand in the Suno web app (O3 Aus account, Pro plan) from the approved prompts and settings in
+`suno/styles.json`, downloaded, then added with `tools/suno_import.py`. The DJ reads each song's sidecar: the known BPM
+is used for tempo matching, vocal tracks are avoided when the room is packed, and Suno songs are peppered in: the
+slot's new genres start at 40% of picks and grow to 100% as they fill to 30 songs each (`new_music` in config.json).
+Below `min_tracks` (8) a new genre hands its share to its Chillify fallback genre.
+
+1. In Suno (Advanced): paste the style's prompt plus a BPM from its range, lyrics empty (instrumental), the style's
+   Exclude styles, and its settings (`suno_settings`, default Weirdness 65 / Style Influence 60 / Variety High).
+   Title each song **"O3 <style label> <bpm>"**, e.g. `O3 Dark Academia 66`.
+2. Download the keepers as MP3. Pro includes 20 downloads a month; pick the best.
+3. `python3 tools/suno_import.py add ~/Downloads/O3*.mp3`: copies them into `library/<style>/` with a sidecar
+   (style and BPM come from the title) and levels loudness. Running it twice adds nothing twice.
+4. Move them to the DJ device: `python3 tools/suno_import.py export o3-music.zip`, copy the zip over (AirDrop, USB, Drive),
+   then on the DJ device in the o3-dj folder: `python3 tools/suno_import.py unpack o3-music.zip` and `./dj.sh restart`.
+   Only Suno songs travel; the zip can be unpacked again later with new songs (existing ones are skipped).
+
+- **Licence**: Suno songs may only be used commercially if they were made on a paid plan (Pro/Premier) at the time.
+  `add --plan` defaults to pro; songs added with another plan get `"commercial": false` and the DJ skips them.
+- **No automation**: the unofficial Suno API needs a CAPTCHA-solving service to work, so we don't use it.
+  `tools/suno_generate.py` stays for an official API if Suno offers one (swap its `Backend`).
+- Prompts describe the sound; Suno rejects artist names.

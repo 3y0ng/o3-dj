@@ -29,11 +29,11 @@ to move it, and double-tap to reset it.
 |---|---|
 | **blue fader** volume | shows the volume the DJ is aiming for. In *auto vol* it moves by itself as the mood changes; moving it trims the automatic level. With auto off: sets the volume directly. Double-click resets. |
 | **green fader** energy | nudges how upbeat the picks are (centre = as the DJ sees it). Double-click resets. |
-| **white fader** occupancy | sets how full the space is (moving it switches **occ** on). Above 50% the music gets slightly louder and more upbeat. |
+| **white fader** occupancy | sets how full the space is (moving it switches **occ** on). Volume rises as the room fills (to sit above the chatter), while energy and tempo counter it: an empty cafe gets livelier music, a packed one calmer, and above 90% instrumentals are preferred. |
 | **orange fader** time | simulates a time of day (bottom = midnight) so you can test evening vs afternoon. **clock** key or a double-click returns to the real time. |
 
 Fader trims (volume/energy) reset automatically when the real clock moves into the next part of the day.
-| **genre** keys | chill / jazzy cafe / asian. You can pick several. The counts show cached/total tracks. |
+| **genre** keys | pick several. The counts show cached/total tracks. **auto** (on by default) adds the genres that suit the time of day and weather (`moods` in config.json) on top of your picks; switch it off to play only what you picked. |
 | **weather** keys | cloudy leans jazzier; rain leans jazzier, softer and calmer, and brings jazz in even if not selected. |
 | **play / skip** | play starts the DJ. **This replaces the main room's Sonos queue.** |
 | **listen** (slide switch on the unit's left side) | plays what the speakers are playing on this phone or laptop, in step with them (it streams the same file from the DJ laptop and follows the speaker's position to within a few hundredths of a second in mock mode, about half a second on real Sonos, nudging its speed rather than jumping). It acts as one more speaker in the group: it follows the group level, so fades and auto volume can be heard, but not the main room's own level offset or mute. The device volume sets the overall level. On by default in demo mode (only while the page is in front, so a forgotten tab stays quiet), off in live mode; sliding it remembers your choice on that device, and switched on by hand it keeps playing in the background. Browsers only start sound after a tap, so if its LED blinks, tap anywhere. In `--mock`, songs last their real length (measured once cached; `mock_track_seconds` until then). |
@@ -93,12 +93,31 @@ and capacity from the venue's red threshold. Details: [docs/live-mode-plan.md](d
 `o3dj/brain.py` is pure logic. Tune it in `config.json`:
 
 - **daypart_curve**: energy + volume by hour (a 24h cafe: calm late night, peak in the afternoon, winding down in the evening).
+Thesis: music anchors the room's atmosphere. Chill is the centre (people feel they can lock in); **volume counters
+occupancy** (louder as the room fills) and **genre complements time and weather**.
+
 - **weather**: energy/volume nudges and genre boosts.
-- **occupancy**: threshold and max boost.
+- **moods** + **mood_hours**: genres for each part of the day (morning 6–12, afternoon 12–17, evening 17–22, after hours)
+  and weather, e.g. morning sun → bossa nova, rainy evening → dark academia, after hours → ambient dream.
+  They're added on top of the selected genres (the **auto** key).
+- **occupancy**: `threshold`/`max_volume` raise volume as the room fills; `bands` set what the room needs:
+
+  | occupancy | need | adjustment |
+  |---|---|---|
+  | 0–15% | make an empty cafe feel alive | +0.15 energy, +8 BPM |
+  | 15–40% | warmth / momentum | +0.05 energy |
+  | 40–70% | ideal natural atmosphere | baseline |
+  | 70–90% | reduce sensory load | −0.10 energy, −5 BPM |
+  | 90–100% | calm the room | −0.20 energy, −10 BPM, instrumental bias |
+- **genres[...].bpm / fallback**: a genre's tempo range (target = middle + the band's BPM shift) and the genre that
+  stands in while it has fewer than `min_tracks` tracks (its weight moves over in proportion).
+- **new_music**: the slot's new (Suno) genres get `start_share` (0.4) of the picks, rising to `full_share` (1.0) as each fills to
+  `full_at_tracks` (30) songs; the current Chillify genres cover the rest, and stand in for a new genre that has fewer than `min_tracks`.
+- **source_weight** (optional per-source preference within a genre), **vocals_penalty** (×0.3 for vocal tracks when the room needs calm).
 - **min_volume / max_volume**: hard safety limits. **room_volume_offsets**: starting per-room levels, e.g. `{"Cafe Entrance": 4}`; the fader on each room overrides them.
 
-Picking: choose a genre by weight, then a track whose **energy** is close to the target,
-weighted by votes, avoiding the last 60 plays. Energy comes from analysing
+Picking: choose a genre by weight, then a track whose **energy** (and, where the genre has a BPM range, **tempo**) is
+close to the target, weighted by votes, avoiding the last 60 plays. A Suno track's tempo comes from its sidecar. Energy comes from analysing
 each track's audio (tempo, loudness, rhythm density, brightness; see `o3dj/analysis.py`),
 and is ranked relative to the whole library. Chillify has no tempo metadata,
 so analysis fills in in the background (~0.1 s per cached track; streaming
@@ -116,7 +135,7 @@ limiter, capped at `max_boost_db`; tracks already within `skip_within_db` are le
 e.g. `lvl −1.9 dB`. The playing track and the next one (which Sonos pre-loads) are never rewritten; they get levelled
 next time. Results are in `data/normalised.json`, with the target each file was levelled for, so changing
 `target_lufs` re-levels the cache in the background. Not levelled yet: tracks still streaming through before they're cached,
-and files in `library/` (they're played as they are).
+and files in `library/` (they're played as they are; Suno downloads are levelled by the generator).
 
 ## Resilience
 
@@ -140,6 +159,10 @@ allow incoming connections if the firewall asks, so the speakers can fetch cache
 
 See [library/README.md](library/README.md): drop files into `library/<genre>/`, paste stream URLs into
 the "add a track" box, or write a new source class in `o3dj/library.py`.
+
+**Suno**: make songs in the Suno web app from the prompts in `suno/styles.json`, download them, then
+`python3 tools/suno_import.py add ~/Downloads/O3*.mp3`. `export` / `unpack` move them to the DJ device in one zip.
+See [library/README.md](library/README.md#suno) for the steps and the licence rule.
 Only play music O3 is licensed to use in a commercial venue.
 
 ## Layout
@@ -150,7 +173,10 @@ config.json         tuning; put machine-specific overrides in config.local.json 
 o3dj/brain.py       atmosphere -> targets, track picking (pure, tested)
 o3dj/dj.py          rolling queue, volume ramps, votes, fallbacks
 o3dj/player.py      SonosPlayer (SoCo) and MockPlayer
-o3dj/library.py     sources: Chillify, library/ folders, custom URL list
+o3dj/library.py     sources: Chillify, library/ folders (+ Suno sidecars), custom URL list
+suno/styles.json    Suno prompts per genre, and the pilot against the reference tracks
+tools/suno_import.py    add downloaded Suno songs; export/unpack them to the DJ device
+tools/suno_generate.py  generator for an official Suno API, if one appears (never run by the DJ)
 o3dj/cache.py       download cache + background prefetch/analysis
 o3dj/analysis.py    ffmpeg/numpy tempo & energy
 o3dj/server.py      JSON API, UI, /media for speakers
@@ -159,7 +185,7 @@ data/               runtime state, cache, votes (gitignored)
 ```
 
 API: `GET /api/state`, `POST /api/control {action: play|pause|skip|up|down, id?}`,
-`POST /api/inputs {genres, weather, occupancy, occupancy_enabled, hour_override, auto, manual_volume, volume_trim, energy_trim}`,
+`POST /api/inputs {genres, moods, weather, occupancy, occupancy_enabled, hour_override, auto, manual_volume, volume_trim, energy_trim}`,
 `POST /api/speakers {action: party|join|leave|main|offset|mute|discover, ip?, value?}`, `POST /api/eq {bass?, treble?, room?, reset?}`, `POST /api/tracks {url, title, genre}`.
 These are the hooks for live data later: a weather or occupancy feed only needs to POST to `/api/inputs`.
 

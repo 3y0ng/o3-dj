@@ -114,7 +114,45 @@ All of these only need to POST to `/api/inputs`.
 - [ ] **Schedules.** Quiet hours / exam-season mode, "focus blocks" (e.g. calmer on the hour for pomodoro sessions).
 - [ ] **Per-venue profiles.** Newtown, Southbank, Brunswick and Auckland each with their own curve, rooms, genres and timezone.
 
-## 5. Roadmap: the DJ itself
+## 5. Suno music + mood strategy (28 Sep 2026)
+
+Thesis: music anchors the room (energised, focused, good mood); chill is the centre. Volume counters occupancy,
+genre complements time/weather. Built: `moods` matrix + **auto** key, occupancy `bands` (energy/BPM/instrumental),
+genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno genre has < `min_tracks`,
+`tools/suno_generate.py` + `suno/styles.json`. Tested in `--mock` and tests only.
+
+- [ ] **Pilot (Phase 0)**: run `--pilot` on a Pro/Premier plan against the 5 starred references; score 1–5 by ear;
+  continue only if 3 of 5 styles score 4+. `_QqabGYTSpQ` has embedding disabled, so its prompt was written from the label
+  "whimsy / mellow fantasy" without the title; listen to it and refine. `vHzykyvBt-Q` is actually vintage American lofi
+  (filed under whimsy fantasy); `GT_J6k5Dyqg` is late-night smooth jazz (used for ambient dream and listed for evening).
+- [ ] Set up gcui-art/suno-api and confirm the endpoints still match (`/api/custom_generate`, `/api/generate`, `/api/get`,
+  `/api/get_limit`); the tool has only been tested against a fake backend.
+- [ ] Confirm the Suno plan and keep proof of subscription for the period songs were generated.
+- [ ] Fill each genre to ≥ 8 tracks (then ~30+ so repeats aren't noticeable); tweak `suno/styles.json` from what the pilot shows.
+- [ ] Tune `moods` weights and the `bands` by ear; the +0.15 energy for an empty room may be a lot on top of the afternoon peak.
+- [ ] "dark academia" is clipped on its genre key; the genre row now has 11 keys and wraps on phones.
+- [ ] Ask whether staff genre picks should also turn **auto** off automatically.
+- [x] First listen (30 Sep 2026): prompts simplified; bossa 108→138 bpm climbing through the morning (`bpm_ramp`) and on cloudy
+  mornings; jazz-hop up to 88–96; afternoon is now instrumental "Ghibli Lofi" 86–94 (no rap, no voices); whimsy softened;
+  evening / dark academia / ambient kept. No four-on-the-floor kicks (they feel anxious). Notes are in `suno/styles.json`.
+- [x] New music is peppered in (5 Oct 2026): `new_music` share starts at 0.4 and reaches 1.0 as each slot's genres hit 30 songs; Chillify is the fallback.
+- [ ] Final listen: one Suno song per timeslot made on the O3 Aus account (Pro), titled "O3 ...". Then connect the API.
+- [x] Second batch (5 Oct): same prompts with Weirdness 65 / Style Influence 60 / Variety High. Bossa now 120→140 bpm across the morning;
+  flute added to Exclude styles (sent as `negative_tags`; check the real API honours it).
+- [x] Afternoon cloudy (5 Oct): replaced whimsy with mellow celtic / elven folk fantasy (cello, harp, dulcimer; Frieren-inspired).
+  Two approved prompts rotate; own exclude list (flute allowed, bright/epic/choir/drums excluded); 66-76 bpm.
+  Suno settings per style (`suno_settings`) aren't sent by the generator yet: check whether the API supports them.
+- [x] API (5 Oct): dropped the unofficial suno-api (needs 2Captcha to solve Suno's hCaptcha). Songs are made in the Suno web app
+  and added with `tools/suno_import.py`; `export`/`unpack` move them to the live DJ device in one zip.
+- [ ] Pro plan = 20 downloads a month (19 left on 5 Oct, resets 30 Oct). First pick: best 2-3 per timeslot.
+- [ ] Get the new code onto the live DJ device (merge to main, `git pull` there) before unpacking songs.
+- [x] A genre staff switch on plays as chosen even with few songs; only genres the moods matrix adds fall back to Chillify.
+- [ ] Decide where Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") sits in `moods`; it's a genre key only for now.
+- [ ] Try classical and Ghibli-style music as extra genres.
+- [ ] Busy afternoons: staff want more upbeat, but the 70–90% band lowers energy/BPM. Decide which wins.
+- [ ] Future: generate music on the fly for the current slot; more parameters (key, instruments); lighting / further mood control.
+
+## 6. Roadmap: the DJ itself
 
 - [ ] Smooth transitions: pick the next track to be close in tempo/key to the current one, not just to the target.
 - [ ] "Adjust what the DJ chose": pin a track to play next, lock a genre for an hour, "more like this" from a track.
@@ -125,7 +163,7 @@ All of these only need to POST to `/api/inputs`.
   a shared Google Drive folder synced into `library/`.
 - [ ] Analytics: what played when, skips/downvotes by daypart, hours of music per room; later, correlate with dwell time/sessions.
 
-## 6. Housekeeping
+## 7. Housekeeping
 
 - [x] Controller (28 Sep 2026): knobs replaced by faders (drag/scroll, relative to where you grab); rooms are channel strips
   with the name printed on the panel and an **on** switch instead of a room-sized button; long song names scroll on the screen.

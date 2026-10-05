@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 MIME = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
         ".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "application/ogg"}
-DISCRETE_INPUTS = {"genres", "weather", "occupancy_enabled", "hour_override"}
+DISCRETE_INPUTS = {"genres", "moods", "weather", "occupancy_enabled", "hour_override"}
 LIVE_INPUTS = {"weather", "occupancy", "occupancy_enabled", "hour_override"}  # come from feeds in live mode
 CONTINUOUS_INPUTS = {"energy_trim", "occupancy"}
 VOLUME_INPUTS = {"auto", "manual_volume", "volume_trim"}
@@ -184,7 +184,8 @@ class DJ:
         return self.calibration_store.data.get(self.venue_key, {})
 
     def compute(self):
-        return brain.targets(self.effective_inputs(), self.cfg, self.hour_now(), self.library.genres(), self.calibration)
+        return brain.targets(self.effective_inputs(), self.cfg, self.hour_now(), self.library.genres(), self.calibration,
+                             self.library.counts())
 
     def available(self, t):
         if self.failed(t.id):
@@ -217,13 +218,17 @@ class DJ:
             self._cache_names = {self.cache.name_for(t): t for t in self.library.all() if t.url}
         return self._cache_names.get(name)
 
+    def bpm_of(self, t):
+        """A sidecar's tempo (what the track was generated at) beats the ffmpeg estimate."""
+        return t.bpm or (self.meta.get(t.id) or {}).get("bpm")
+
     def pick(self, n=1, exclude=()):
         tgt = self.targets
         by_genre = {g: self.library.in_genre(g) for g in tgt["weights"]}
         recent = {h["id"] for h in list(self.history)[-60:]} | set(self.queued_ids()) | set(exclude)
         out = []
         for _ in range(n):
-            t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available)
+            t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available, bpm_of=self.bpm_of)
             if not t:
                 break
             recent.add(t.id)
@@ -626,7 +631,10 @@ class DJ:
 
     def _effective_key(self):
         i = self.effective_inputs()
-        return (i.weather, i.occupancy_enabled, i.occupancy // 10 if i.occupancy_enabled else None)
+        if not i.occupancy_enabled:
+            return (i.weather, False, None)
+        band = brain.occupancy_band(self.cfg, i.occupancy) or {}
+        return (i.weather, True, (i.occupancy // 10, band.get("lo")))
 
     def _follow_live(self):
         """In live mode, re-pick upcoming tracks when the live atmosphere changes."""
@@ -941,10 +949,12 @@ class DJ:
         """When the real clock moves into a new part of the day: re-pick, and let knob trims expire."""
         if self.mode != "live" and self.inputs.hour_override is not None:
             return
-        dp = self.targets["daypart"]
+        # the daypart curve and the moods matrix change at different hours; either one re-picks
+        dp = (self.targets["daypart"], self.targets.get("mood_daypart"))
         if self.last_daypart and dp != self.last_daypart:
-            msg = f"now {dp}"
-            if self.cfg.get("reset_trims_on_daypart", True) and (self.inputs.energy_trim or self.inputs.volume_trim):
+            new_part = dp[0] != self.last_daypart[0]
+            msg = f"now {dp[0]}" if new_part else f"now {(dp[1] or '').replace('_', ' ')} music"
+            if new_part and self.cfg.get("reset_trims_on_daypart", True) and (self.inputs.energy_trim or self.inputs.volume_trim):
                 self.inputs.energy_trim, self.inputs.volume_trim = 0.0, 0
                 self.save()
                 self.targets = self.compute()

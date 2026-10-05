@@ -45,7 +45,8 @@ def _answers(model):
     for sc in calibrate.SCENARIOS:
         e, v, _ = brain.interp_curve(CFG["daypart_curve"], sc["hour"])
         de, dv = calibrate.effects(model, sc["weather"], sc["occupancy"], True)
-        out.append({**sc, "volume": v + dv, "energy": e + de})
+        band = brain.occupancy_band(CFG, sc["occupancy"]) or {}  # the DJ's answers include the band
+        out.append({**sc, "volume": v + dv, "energy": e + de + band.get("energy", 0.0)})
     return out
 
 

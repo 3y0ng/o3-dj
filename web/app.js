@@ -693,9 +693,11 @@ function renderGenreKeys(s) {
   const keys = Object.keys(s.genres);
   if (wrap.dataset.keys !== keys.join()) {
     wrap.dataset.keys = keys.join();
-    wrap.innerHTML = keys.map((g, k) =>
+    wrap.innerHTML = `<button class="key dark" data-moods title="add genres for the time of day and weather"><span class="led"></span><em>auto</em></button>` +
+      keys.map((g, k) =>
       `<button class="key" data-genre="${g}"><span class="led"></span><span class="swatch" style="--sw:${genreColor(g, k)}"></span><em></em><span class="count"></span></button>`).join("");
     $$("[data-genre]", wrap).forEach((b) => b.addEventListener("click", () => toggleGenre(b.dataset.genre)));
+    $("[data-moods]", wrap).addEventListener("click", () => setInputs({ moods: S.inputs.moods === false }, 0));
     const sel = $("#add-genre");
     sel.innerHTML = keys.map((g) => `<option value="${g}">${esc(s.genres[g].label.toLowerCase())}</option>`).join("");
   }
@@ -705,6 +707,7 @@ function renderGenreKeys(s) {
     $(".count", b).textContent = `${g.cached}/${g.tracks}`;
     $(".led", b).classList.toggle("on", s.inputs.genres.includes(b.dataset.genre));
   });
+  $(".led", $("[data-moods]", wrap)).classList.toggle("on", s.inputs.moods !== false);
 }
 
 const pendingOffset = {};  // ip -> offset set on the fader but not yet confirmed by the server

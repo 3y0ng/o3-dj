@@ -1,0 +1,229 @@
+{
+  "_about": "Suno style prompts per genre key (see tools/suno_generate.py). Describe the sound; Suno rejects artist names. modifiers are the associations we want the room to feel (Approach 1). bpm is a range; each generation picks one and records it.",
+  "credits_per_call": 10,
+  "styles": {
+    "bossa_house": {
+      "label": "Bossa Nova",
+      "prompt": "classic 60s bossa nova, chill, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        120,
+        140
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=rOeHm_JuueA",
+        "https://www.youtube.com/watch?v=XJb5_nlE8yY",
+        "https://www.youtube.com/watch?v=p8ug6mn93xk"
+      ],
+      "notes": "Tried 30 Sep + 5 Oct: good. Tempo climbs through the morning, 120 at 6am to 140 by noon (128 felt right mid-morning); also plays on cloudy mornings. No flute: the weirder takes added one and it didn't fit the chill cafe."
+    },
+    "jazzhop": {
+      "label": "Jazz-hop",
+      "prompt": "upbeat japanese jazz-hop, chill, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        88,
+        96
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=x3oe23VdK9A",
+        "https://www.youtube.com/watch?v=ieTKcijAYNc"
+      ],
+      "notes": "Tried 30 Sep: 82 bpm was too slow; upbeat at ~92 is right."
+    },
+    "lofi_indie": {
+      "label": "Ghibli Lofi",
+      "prompt": "upbeat ghibli lofi, bouncy beats, cool, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        86,
+        94
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=KC7VaKB_D9A",
+        "https://www.youtube.com/watch?v=N3ur5Ey21zg",
+        "https://www.youtube.com/watch?v=rt1mRnRp79A"
+      ],
+      "notes": "Tried 30 Sep: no rap / no voices; needs to be more upbeat for the busy afternoon. 98 bpm tech house was too fast; four-on-the-floor kicks feel anxious."
+    },
+    "whimsy_fantasy": {
+      "label": "Whimsy Fantasy",
+      "prompt": "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        66,
+        76
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=_QqabGYTSpQ"
+      ],
+      "notes": "Tried 5 Oct: whimsy and bright celtic-orchestral prompts missed (too bright, not mellow). Inspired by the Frieren soundtrack: cello, harp, fantasy folk instruments, nostalgic. Variants D (celtic) and F (elven folk, dulcimer) approved; flute is fine here. Made with Weirdness 55 / Style Influence 70 / Variety High.",
+      "prompts": [
+        "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe",
+        "gentle elven folk lament, harp, cello, hammered dulcimer, misty and bittersweet, cosy cafe"
+      ],
+      "exclude_only": [
+        "vocals",
+        "singing",
+        "bright",
+        "upbeat",
+        "cheerful",
+        "epic",
+        "trailer",
+        "choir",
+        "brass",
+        "drums",
+        "four on the floor",
+        "EDM",
+        "drop",
+        "build-up",
+        "distortion"
+      ],
+      "suno_settings": {
+        "weirdness": 55,
+        "style_influence": 70,
+        "variety": "High"
+      }
+    },
+    "indie_lofi_fantasy": {
+      "label": "Evening Lofi",
+      "prompt": "chill evening lofi, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        68,
+        80
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=MYPVQccHhAQ",
+        "https://www.youtube.com/watch?v=EHtKBxV6JKE",
+        "https://www.youtube.com/watch?v=GT_J6k5Dyqg"
+      ],
+      "notes": "Tried 30 Sep: good, keep."
+    },
+    "dark_academia": {
+      "label": "Dark Academia",
+      "prompt": "dark academia piano, chill, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        60,
+        72
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=m6SOJlkN1zU",
+        "https://www.youtube.com/watch?v=VMAPTo7RVCo",
+        "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
+      ],
+      "notes": "Tried 30 Sep: good, keep."
+    },
+    "ambient_dream": {
+      "label": "Ambient Dream",
+      "prompt": "ambient dreamscape, calm, cosy cafe",
+      "modifiers": [],
+      "bpm": [
+        55,
+        68
+      ],
+      "vocals": false,
+      "references": [
+        "https://www.youtube.com/watch?v=GT_J6k5Dyqg",
+        "https://www.youtube.com/watch?v=Kylm5L2mVzY",
+        "https://www.youtube.com/watch?v=LIKhAQlCbfI"
+      ],
+      "notes": "Tried 30 Sep: good, keep."
+    },
+    "electronic_lofi": {
+      "label": "Electronic Lofi",
+      "prompt": "electronic soul, deep house",
+      "modifiers": [],
+      "bpm": [
+        104,
+        116
+      ],
+      "vocals": false,
+      "references": [
+        "https://suno.com/song/8adeb1e7-1f98-41e0-aa02-152b2f5f18fc"
+      ],
+      "notes": "6 Oct: new afternoon version made by hand ('Cloudy Afternoon Soul', ~110 bpm). On trial; not in the moods matrix yet."
+    }
+  },
+  "pilot": {
+    "_about": "Phase 0: can Suno match the starred references? Generate with --pilot; files go to data/suno_pilot/<id>/ (not into rotation). Score each 1-5 against the reference; keep prompts that score 4+.",
+    "bossa_ipanema": {
+      "genre": "bossa_house",
+      "reference": "https://www.youtube.com/watch?v=rOeHm_JuueA",
+      "reference_title": "\"Lost in Ipanema 1964\" - Pure 60s Bossa Nova for morning coffee",
+      "prompt": "classic 60s bossa nova, chill, cosy cafe",
+      "bpm": [
+        120,
+        140
+      ],
+      "vocals": false
+    },
+    "whimsy_fantasy": {
+      "genre": "whimsy_fantasy",
+      "reference": "https://www.youtube.com/watch?v=_QqabGYTSpQ",
+      "reference_title": "(embedding disabled; title not available) whimsy / mellow fantasy",
+      "prompt": "whimsical mellow fantasy, gentle, cosy cafe",
+      "bpm": [
+        70,
+        84
+      ],
+      "vocals": false
+    },
+    "vintage_drive": {
+      "genre": "whimsy_fantasy",
+      "reference": "https://www.youtube.com/watch?v=vHzykyvBt-Q",
+      "reference_title": "Late Night Drive - Vintage American Lofi, nostalgic beats",
+      "prompt": "vintage americana lofi, chill, cosy cafe",
+      "bpm": [
+        70,
+        82
+      ],
+      "vocals": false
+    },
+    "dark_academia": {
+      "genre": "dark_academia",
+      "reference": "https://www.youtube.com/watch?v=m6SOJlkN1zU",
+      "reference_title": "Cozy Coffee Shop Ambience - Dark Academia music, melancholic piano",
+      "prompt": "dark academia piano, chill, cosy cafe",
+      "bpm": [
+        60,
+        72
+      ],
+      "vocals": false
+    },
+    "seaside_night": {
+      "genre": "ambient_dream",
+      "reference": "https://www.youtube.com/watch?v=GT_J6k5Dyqg",
+      "reference_title": "Seaside Cafe at Night - smooth jazz for relaxing late nights",
+      "prompt": "late night smooth jazz, chill, cosy cafe",
+      "bpm": [
+        62,
+        74
+      ],
+      "vocals": false
+    }
+  },
+  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt.",
+  "exclude": [
+    "vocals",
+    "rap",
+    "singing",
+    "flute",
+    "four on the floor",
+    "house kick",
+    "EDM",
+    "drop",
+    "build-up",
+    "heavy bass",
+    "distortion",
+    "aggressive",
+    "loud drums"
+  ]
+}
