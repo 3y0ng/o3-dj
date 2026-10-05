@@ -94,6 +94,15 @@ def test_new_music_share_grows_with_the_library():
     assert not any(CFG["genres"].get(g, {}).get("fallback") for g in empty)  # Chillify covers an empty slot
 
 
+def test_a_genre_staff_pick_plays_even_with_few_songs():
+    counts = {"chill": 400, "jazzy_cafe": 300, "asian": 200, "dark_academia": 1}
+    t = brain.targets(brain.Inputs(genres=["dark_academia"], moods=False), CFG, 15, GENRES, counts=counts)
+    assert t["weights"] == {"dark_academia": 1.0}
+    # with auto on, the slot's own short genres still lean on Chillify, but the pick keeps its weight
+    t = brain.targets(brain.Inputs(genres=["dark_academia"]), CFG, 15, GENRES, counts=counts)
+    assert t["weights"]["dark_academia"] >= 1 - CFG["new_music"]["start_share"] - 0.01
+
+
 def test_moods_off_keeps_staff_selection():
     assert set(tgt(9, genres=["asian"], moods=False)["weights"]) == {"asian"}
 

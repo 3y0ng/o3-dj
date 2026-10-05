@@ -102,6 +102,7 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
     selected = [g for g in inputs.genres if g in all_genres] or list(all_genres)
     weights = {g: 1.0 for g in selected}
     sel_unit = 1.0  # weight of one selected genre; the new-music share shrinks it
+    added = {}  # weight the moods matrix brought in (staff-selected weight is never handed to a fallback)
 
     # Genre complements time and weather: the moods matrix brings in each slot's (new) genres alongside the
     # selection, at a share that grows from new_music.start_share to full_share as the slot's library fills.
@@ -116,12 +117,13 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
             weights = {g: v / sel_total * (1 - share) for g, v in weights.items()}
             sel_unit = (1 - share) / sel_total
             for g, v in mood.items():
-                weights[g] = weights.get(g, 0.0) + v / mood_total * share
+                added[g] = v / mood_total * share
+                weights[g] = weights.get(g, 0.0) + added[g]
             reasons.append(f"{part.replace('_', ' ')}, {inputs.weather} -> " + "/".join(all_genres.get(g, g) for g in mood)
                            + f" ({share:.0%} new music)")
 
     if counts is not None:
-        _fallback(weights, cfg, counts, all_genres, reasons)
+        _fallback(weights, added, cfg, counts, all_genres, reasons)
 
     w = cfg["weather"].get(inputs.weather, cfg["weather"]["clear"])
     if not model:
@@ -217,17 +219,18 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
     }
 
 
-def _fallback(weights, cfg, counts, all_genres, reasons):
-    """A genre with fewer than min_tracks hands a proportional share of its weight to its fallback genre,
-    so a new (e.g. Suno) genre fades in as its library grows instead of playing the same few songs."""
+def _fallback(weights, added, cfg, counts, all_genres, reasons):
+    """A genre the moods matrix added (`added`: genre -> weight) with fewer than min_tracks hands a proportional
+    share of that weight to its fallback genre, so a new (e.g. Suno) genre fades in as its library grows instead
+    of playing the same few songs. A genre staff switched on themselves keeps its full weight."""
     need = cfg.get("min_tracks", 8)
     moved = []
-    for g in list(weights):
+    for g in list(added):
         fb = cfg.get("genres", {}).get(g, {}).get("fallback")
         n = counts.get(g, 0)
         if not fb or fb not in all_genres or n >= need:
             continue
-        share = weights[g] * (1 - n / need)
+        share = added[g] * (1 - n / need)
         weights[g] -= share
         weights[fb] = weights.get(fb, 0.0) + share
         if not weights[g]:
