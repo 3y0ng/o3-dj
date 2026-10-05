@@ -31,11 +31,14 @@ class Track:
     id: str
     title: str
     genre: str            # our genre key, e.g. "jazzy_cafe"
-    source: str           # "chillify" | "folder" | "url"
+    source: str           # "chillify" | "folder" | "suno" | "url"
     url: str | None = None    # remote stream URL
     path: str | None = None   # path relative to library/ for local files
     artist: str = ""
     subgenre: str = ""
+    bpm: float | None = None      # known tempo (a Suno sidecar), better than the ffmpeg estimate
+    vocals: bool | None = None    # None = unknown
+    tags: list | None = None
 
     def to_dict(self):
         return asdict(self)
@@ -102,19 +105,39 @@ class ChillifySource:
         return self.online
 
 
+def read_sidecar(audio):
+    """Metadata next to an audio file (<stem>.json, written by tools/suno_generate.py), or {}."""
+    try:
+        d = json.loads(audio.with_suffix(".json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
 class FolderSource:
     name = "folder"
 
+    def __init__(self, root=None):
+        self.root = root or LIBRARY
+
     def load(self):
         tracks = []
-        for genre_dir in sorted(p for p in LIBRARY.iterdir() if p.is_dir()):
+        for genre_dir in sorted(p for p in self.root.iterdir() if p.is_dir()):
             for f in sorted(genre_dir.rglob("*")):
                 if f.suffix.lower() not in AUDIO_EXTS or f.name.startswith("."):
                     continue
-                rel = f.relative_to(LIBRARY).as_posix()
+                rel = f.relative_to(self.root).as_posix()
+                meta = read_sidecar(f)
+                if meta.get("commercial") is False:  # e.g. made on a free Suno plan: not licensed for the cafe
+                    continue
+                suno = meta.get("source") == "suno"
+                vocals = meta.get("vocals")
                 tracks.append(Track(
-                    id=f"folder:{rel}", title=f.stem, genre=genre_dir.name,
-                    source=self.name, path=rel, artist="Local",
+                    id=f"folder:{rel}", title=meta.get("title") or f.stem, genre=genre_dir.name,
+                    source="suno" if suno else self.name, path=rel,
+                    artist="Suno" if suno else meta.get("artist", "Local"),
+                    bpm=meta.get("bpm"), vocals=None if vocals is None else bool(vocals),
+                    tags=meta.get("tags"),
                 ))
         return tracks
 
@@ -187,3 +210,11 @@ class Library:
     def all(self):
         with self.lock:
             return list(self.tracks.values())
+
+    def counts(self):
+        """{genre: number of tracks}."""
+        out = {}
+        with self.lock:
+            for t in self.tracks.values():
+                out[t.genre] = out.get(t.genre, 0) + 1
+        return out

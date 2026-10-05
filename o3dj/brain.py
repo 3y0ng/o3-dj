@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 @dataclass
 class Inputs:
     genres: list = field(default_factory=lambda: ["chill"])
+    moods: bool = True                # add genres for the time of day and weather (config `moods`)
     weather: str = "clear"            # clear | cloudy | rain
     occupancy: int = 50               # 0..100 %
     occupancy_enabled: bool = False
@@ -43,7 +44,54 @@ def interp_curve(curve, hour):
     return curve[-1][1], curve[-1][2], curve[-1][3]
 
 
-def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
+def mood_daypart(cfg, hour):
+    """Which `moods` daypart an hour falls in (mood_hours: [[start_hour, name], ...], wrapping at midnight)."""
+    hours = cfg.get("mood_hours") or []
+    if not hours:
+        return None
+    name = hours[-1][1]
+    for start, label in hours:
+        if hour % 24 >= start:
+            name = label
+    return name
+
+
+def mood_progress(cfg, hour):
+    """How far through its mood daypart an hour is, 0..1 (0 = the part just started)."""
+    hours = sorted(cfg.get("mood_hours") or [], key=lambda x: x[0])
+    if not hours:
+        return 0.5
+    h = hour % 24
+    starts = [x[0] for x in hours]
+    i = max((j for j, st in enumerate(starts) if h >= st), default=len(starts) - 1)
+    start, end = starts[i], starts[(i + 1) % len(starts)]
+    length = (end - start) % 24 or 24
+    return ((h - start) % 24) / length
+
+
+def new_music_share(cfg, mood, counts=None):
+    """Share of picks for the slot's new genres: start_share with an empty library, rising linearly to full_share
+    as the slot's genres fill up to full_at_tracks songs each (counts unknown -> start_share)."""
+    nm = cfg.get("new_music") or {}
+    start, full = nm.get("start_share", 1.0), nm.get("full_share", 1.0)
+    if counts is None or not mood:
+        return start
+    need = nm.get("full_at_tracks", 30)
+    fill = sum(w * min(1.0, counts.get(g, 0) / need) for g, w in mood.items()) / sum(mood.values())
+    return start + (full - start) * fill
+
+
+def occupancy_band(cfg, occupancy):
+    """The occupancy band the room is in: {lo, hi, energy, bpm, instrumental, label}, or None."""
+    for lo, hi, energy, bpm, instrumental, *label in cfg.get("occupancy", {}).get("bands", []):
+        if lo <= occupancy < hi:
+            return {"lo": lo, "hi": hi, "energy": energy, "bpm": bpm, "instrumental": instrumental,
+                    "label": label[0] if label else ""}
+    return None
+
+
+def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, counts=None):
+    """counts: {genre: number of tracks}; when given, genres with too few tracks hand weight to their fallback."""
     hour = inputs.hour_override if inputs.hour_override is not None else hour_now
     energy, volume, daypart = interp_curve(cfg["daypart_curve"], hour)
     reasons = [f"{daypart} {int(hour):02d}:{int(hour % 1 * 60):02d} -> energy {energy:.2f}, vol {volume:.0f}"]
@@ -53,6 +101,27 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
 
     selected = [g for g in inputs.genres if g in all_genres] or list(all_genres)
     weights = {g: 1.0 for g in selected}
+    sel_unit = 1.0  # weight of one selected genre; the new-music share shrinks it
+
+    # Genre complements time and weather: the moods matrix brings in each slot's (new) genres alongside the
+    # selection, at a share that grows from new_music.start_share to full_share as the slot's library fills.
+    moods = cfg.get("moods") or {}
+    part = mood_daypart(cfg, hour)
+    if inputs.moods and moods.get("enabled", True) and part:
+        slot = moods.get(part, {})
+        mood = {g: w for g, w in slot.get(inputs.weather, slot.get("clear", {})).items() if g in all_genres and w > 0}
+        if mood:
+            share = new_music_share(cfg, mood, counts)
+            sel_total, mood_total = sum(weights.values()) or 1, sum(mood.values())
+            weights = {g: v / sel_total * (1 - share) for g, v in weights.items()}
+            sel_unit = (1 - share) / sel_total
+            for g, v in mood.items():
+                weights[g] = weights.get(g, 0.0) + v / mood_total * share
+            reasons.append(f"{part.replace('_', ' ')}, {inputs.weather} -> " + "/".join(all_genres.get(g, g) for g in mood)
+                           + f" ({share:.0%} new music)")
+
+    if counts is not None:
+        _fallback(weights, cfg, counts, all_genres, reasons)
 
     w = cfg["weather"].get(inputs.weather, cfg["weather"]["clear"])
     if not model:
@@ -64,7 +133,7 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
         if g in weights:
             weights[g] *= boost
         elif boost >= 2:  # strong weather mood pulls the genre in even if unselected
-            weights[g] = cfg.get("unselected_boost_base", 0.35) * boost
+            weights[g] = cfg.get("unselected_boost_base", 0.35) * boost * sel_unit
     if inputs.weather != "clear":
         parts = [f"{inputs.weather}"]
         if w["energy"] and not model:
@@ -77,18 +146,35 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
 
     if model:
         from .calibrate import effects
-        de, dv = effects(model, inputs.weather, inputs.occupancy, inputs.occupancy_enabled)
+        # Occupancy moves energy through the bands below, so only weather feeds the calibrated energy.
+        de = effects(model, inputs.weather, 50, False)[0]
+        dv = effects(model, inputs.weather, inputs.occupancy, inputs.occupancy_enabled)[1]
         energy += de
         volume += dv
         occ_txt = f", {inputs.occupancy}% full" if inputs.occupancy_enabled else ""
         reasons.append(f"calibrated ({inputs.weather}{occ_txt}) -> energy {de:+.2f}, vol {dv:+.0f}")
     elif inputs.occupancy_enabled:
+        # Volume counters the crowd: it rises as the room fills, to sit above the chatter.
         occ = cfg["occupancy"]
         f = _clip((inputs.occupancy - occ["threshold"]) / (100 - occ["threshold"]), 0, 1)
         if f > 0:
-            energy += occ["max_energy"] * f
             volume += occ["max_volume"] * f
-            reasons.append(f"busy {inputs.occupancy}% -> energy {occ['max_energy'] * f:+.2f}, vol {occ['max_volume'] * f:+.0f}")
+            reasons.append(f"busy {inputs.occupancy}% -> vol {occ['max_volume'] * f:+.0f}")
+
+    # Energy and tempo meet the room's need: lift an empty cafe, calm a packed one.
+    bpm_shift, instrumental = 0, False
+    band = occupancy_band(cfg, inputs.occupancy) if inputs.occupancy_enabled else None
+    if band:
+        energy += band["energy"]
+        bpm_shift, instrumental = band["bpm"], band["instrumental"]
+        if band["energy"] or band["bpm"] or instrumental:
+            parts = [f"energy {band['energy']:+.2f}"] if band["energy"] else []
+            if band["bpm"]:
+                parts.append(f"{band['bpm']:+d} BPM")
+            if instrumental:
+                parts.append("instrumental")
+            label = f" ({band['label']})" if band["label"] else ""
+            reasons.append(f"{band['lo']}-{min(band['hi'], 100)}% full{label} -> " + ", ".join(parts))
 
     if inputs.energy_trim:
         energy += inputs.energy_trim
@@ -103,21 +189,58 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None):
         volume = inputs.manual_volume
         reasons.append("manual volume")
 
+    # A genre's target tempo is the middle of its range, or with bpm_ramp it climbs from low to high across the daypart.
+    bpm = {}
+    for g in weights:
+        gc = cfg.get("genres", {}).get(g, {})
+        if gc.get("bpm"):
+            lo, hi = gc["bpm"]
+            pos = mood_progress(cfg, hour) if gc.get("bpm_ramp") else 0.5
+            bpm[g] = round(lo + (hi - lo) * pos + bpm_shift, 1)
+
     total = sum(weights.values()) or 1
     return {
         "hour": round(hour, 2),
         "clock": inputs.hour_override is None,
         "daypart": daypart,
+        "mood_daypart": part,
         "energy": round(_clip(energy, 0.05, 0.95), 3),
         "volume": int(round(_clip(volume, cfg["min_volume"], cfg["max_volume"]))),
         "volume_base": round(volume_base, 1),
         "weights": {g: round(v / total, 3) for g, v in weights.items()},
+        "bpm_shift": bpm_shift,
+        "bpm": bpm,
+        "instrumental": instrumental,
+        "vocals_penalty": cfg.get("vocals_penalty", 0.3),
+        "source_weight": cfg.get("source_weight", {}),
         "reasons": reasons,
     }
 
 
+def _fallback(weights, cfg, counts, all_genres, reasons):
+    """A genre with fewer than min_tracks hands a proportional share of its weight to its fallback genre,
+    so a new (e.g. Suno) genre fades in as its library grows instead of playing the same few songs."""
+    need = cfg.get("min_tracks", 8)
+    moved = []
+    for g in list(weights):
+        fb = cfg.get("genres", {}).get(g, {}).get("fallback")
+        n = counts.get(g, 0)
+        if not fb or fb not in all_genres or n >= need:
+            continue
+        share = weights[g] * (1 - n / need)
+        weights[g] -= share
+        weights[fb] = weights.get(fb, 0.0) + share
+        if not weights[g]:
+            del weights[g]
+        moved.append(f"{all_genres.get(g, g)} ({n})")
+    if moved:
+        reasons.append("few tracks yet: " + ", ".join(moved) + " -> fallback genres")
+
+
 ENERGY_WIDTH = 0.15      # how strictly tracks must match target energy
 UNKNOWN_MATCH = 0.45     # match score for tracks not yet analysed
+BPM_WIDTH = 8.0          # how strictly tracks must match a genre's target BPM
+UNKNOWN_BPM = 0.6        # tempo score for tracks with no BPM
 BAN_THRESHOLD = 3        # net downvotes that remove a track from rotation
 
 
@@ -139,10 +262,28 @@ def match(track_energy, target):
     return math.exp(-((track_energy - target) ** 2) / (2 * ENERGY_WIDTH ** 2))
 
 
-def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random):
-    """Choose a genre by weight, then a track in it by energy match x votes.
+def bpm_match(track_bpm, target):
+    if target is None:
+        return 1.0
+    if not track_bpm:
+        return UNKNOWN_BPM
+    return math.exp(-((track_bpm - target) ** 2) / (2 * BPM_WIDTH ** 2))
 
-    tracks_by_genre: {genre: [Track]}; energy_of(id) -> float|None;
+
+def score(t, tgt, energy_of, bpm_of, votes):
+    """How well a track suits the targets: energy x tempo x votes x vocals/source preferences."""
+    s = match(energy_of(t.id), tgt["energy"]) * vote_factor(votes.get(t.id))
+    if bpm_of:
+        s *= bpm_match(bpm_of(t), tgt.get("bpm", {}).get(t.genre))
+    if tgt.get("instrumental") and getattr(t, "vocals", None):
+        s *= tgt.get("vocals_penalty", 0.3)
+    return s * tgt.get("source_weight", {}).get(t.source, 1.0)
+
+
+def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None):
+    """Choose a genre by weight, then a track in it by energy/tempo match x votes.
+
+    tracks_by_genre: {genre: [Track]}; energy_of(id) -> float|None; bpm_of(track) -> float|None;
     votes: {id: {...}}; recent: set of ids to avoid; available(track) -> bool.
     """
     genres = [g for g, w in tgt["weights"].items() if w > 0 and tracks_by_genre.get(g)]
@@ -156,7 +297,7 @@ def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random):
                 if banned(v) or not available(t) or (not relax and t.id in recent):
                     continue
                 cands.append(t)
-                scores.append(match(energy_of(t.id), tgt["energy"]) * vote_factor(v))
+                scores.append(score(t, tgt, energy_of, bpm_of, votes))
             if cands:
                 return rng.choices(cands, weights=scores)[0]
             pool_g.remove(g)

@@ -8,13 +8,16 @@ Model (per target, volume and energy), on top of the time-of-day curve:
     f_busy  = how far above half-full the room is (0 at 50%, 1 at 100%)
     f_empty = how far below half-full it is       (0 at 50%, 1 at 0%)
 
+Occupancy's effect on energy comes from config `occupancy.bands` (brain.occupancy_band), so the
+energy fit subtracts the band and brain.targets only uses the calibrated energy's weather terms.
+
 The fit is a small ridge regression pulled toward the defaults below, so six answers can
 shift things sensibly without producing anything extreme.
 """
 
 import numpy as np
 
-from .brain import interp_curve
+from .brain import interp_curve, occupancy_band
 
 SCENARIOS = [
     {"id": "morning_quiet",   "name": "Quiet morning",          "hour": 9.5,  "weather": "clear",  "occupancy": 20},
@@ -37,7 +40,8 @@ def defaults(cfg):
     return {
         "volume": {"offset": 0.0, "busy": float(occ["max_volume"]), "empty": 0.0,
                    "rain": float(w["rain"]["volume"]), "cloudy": float(w["cloudy"]["volume"])},
-        "energy": {"offset": 0.0, "busy": float(occ["max_energy"]), "empty": 0.0,
+        # occupancy moves energy through the bands in brain.occupancy_band, not through this model
+        "energy": {"offset": 0.0, "busy": 0.0, "empty": 0.0,
                    "rain": float(w["rain"]["energy"]), "cloudy": float(w["cloudy"]["energy"])},
     }
 
@@ -57,6 +61,8 @@ def fit(samples, cfg):
     for target in ("volume", "energy"):
         idx = 1 if target == "volume" else 0  # interp_curve -> (energy, volume, label)
         base = np.array([interp_curve(cfg["daypart_curve"], s["hour"])[idx] for s in samples])
+        if target == "energy":  # the answers include the occupancy band's energy; fit only the rest
+            base += np.array([(occupancy_band(cfg, s["occupancy"]) or {}).get("energy", 0.0) for s in samples])
         y = np.array([s[target] for s in samples]) - base
         p0 = np.array([prior[target][k] for k in PARAMS])
         lam = np.diag([RIDGE[k] for k in PARAMS])

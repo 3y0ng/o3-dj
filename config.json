@@ -12,9 +12,47 @@
   "genres": {
     "chill":      { "label": "Chill",      "sources": { "chillify": ["chill"] } },
     "jazzy_cafe": { "label": "Jazzy Cafe", "sources": { "chillify": ["jazzy", "cafe"] } },
-    "asian":      { "label": "Asian",      "sources": { "chillify": ["asian"] } }
+    "asian":      { "label": "Asian",      "sources": { "chillify": ["asian"] } },
+
+    "bossa_house":        { "label": "Bossa Nova",       "bpm": [120, 140], "bpm_ramp": true, "fallback": "jazzy_cafe" },
+    "jazzhop":            { "label": "Jazz-hop",         "bpm": [88, 96],   "fallback": "asian" },
+    "lofi_indie":         { "label": "Ghibli Lofi",       "bpm": [86, 94],   "fallback": "chill" },
+    "whimsy_fantasy":     { "label": "Whimsy Fantasy",   "bpm": [66, 76],   "fallback": "chill" },
+    "indie_lofi_fantasy": { "label": "Evening Lofi",     "bpm": [68, 80],   "fallback": "chill" },
+    "dark_academia":      { "label": "Dark Academia",    "bpm": [60, 72],   "fallback": "jazzy_cafe" },
+    "ambient_dream":      { "label": "Ambient Dream",    "bpm": [55, 68],   "fallback": "chill" },
+    "electronic_lofi":    { "label": "Electronic Lofi",  "bpm": [104, 116], "fallback": "chill" }
   },
   "default_genres": ["chill"],
+  "min_tracks": 8,
+  "new_music": { "start_share": 0.4, "full_share": 1.0, "full_at_tracks": 30 },
+  "source_weight": {},
+  "vocals_penalty": 0.3,
+
+  "mood_hours": [[6, "morning"], [12, "afternoon"], [17, "evening"], [22, "after_hours"]],
+  "moods": {
+    "enabled": true,
+    "morning": {
+      "clear":  { "bossa_house": 2.0, "jazzhop": 1.0 },
+      "cloudy": { "bossa_house": 2.0, "jazzhop": 1.0 },
+      "rain":   { "jazzhop": 2.0, "dark_academia": 1.0 }
+    },
+    "afternoon": {
+      "clear":  { "lofi_indie": 2.0, "whimsy_fantasy": 0.5 },
+      "cloudy": { "whimsy_fantasy": 2.0, "lofi_indie": 1.0 },
+      "rain":   { "whimsy_fantasy": 1.5, "jazzhop": 1.0, "dark_academia": 0.5 }
+    },
+    "evening": {
+      "clear":  { "indie_lofi_fantasy": 2.0, "lofi_indie": 0.5 },
+      "cloudy": { "indie_lofi_fantasy": 1.5, "dark_academia": 1.0 },
+      "rain":   { "dark_academia": 2.0, "ambient_dream": 1.0 }
+    },
+    "after_hours": {
+      "clear":  { "ambient_dream": 2.0, "indie_lofi_fantasy": 0.5 },
+      "cloudy": { "ambient_dream": 2.0, "dark_academia": 0.5 },
+      "rain":   { "ambient_dream": 2.0, "dark_academia": 1.0 }
+    }
+  },
 
   "daypart_curve": [
     [0,  0.18, 20, "late night"],
@@ -35,7 +73,16 @@
   },
   "unselected_boost_base": 0.35,
 
-  "occupancy": { "threshold": 50, "max_energy": 0.12, "max_volume": 6 },
+  "occupancy": {
+    "threshold": 50, "max_volume": 6,
+    "bands": [
+      [0,  15,  0.15,  8,   false, "make it feel alive"],
+      [15, 40,  0.05,  0,   false, "warmth"],
+      [40, 70,  0.00,  0,   false, "natural"],
+      [70, 90,  -0.10, -5,  false, "reduce load"],
+      [90, 101, -0.20, -10, true,  "calm the room"]
+    ]
+  },
 
   "cache": {
     "max_mb": 2000,

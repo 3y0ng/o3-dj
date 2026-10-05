@@ -34,7 +34,17 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   ramps volume, follows what the speaker is doing, recovers from failures, adopts its own queue after a restart.
 - `o3dj/player.py`: `SonosPlayer` (SoCo) and `MockPlayer` share one interface. Keep them in step; the mock
   deliberately reproduces Sonos quirks (duration reported as 0, removing the playing item resets to item 1).
-- `o3dj/library.py`: sources (Chillify catalogue, `library/<genre>/` files, `library/custom_tracks.json`).
+- `o3dj/library.py`: sources (Chillify catalogue, `library/<genre>/` files, `library/custom_tracks.json`). A `<stem>.json`
+  sidecar next to a folder file (written by `tools/suno_import.py`) sets `source="suno"`, `bpm`, `vocals`; `"commercial": false` skips it.
+- Mood strategy in `brain.targets()`: `moods` (daypart × weather → genre weights, added on top of the selection unless
+  `Inputs.moods` is off), occupancy `bands` (energy / BPM shift / instrumental; volume still rises with occupancy),
+  per-genre `bpm` (+ `bpm_ramp`) + `fallback` (a genre under `min_tracks` hands weight to its fallback), and `new_music` (the mood genres'
+  share: 0.4 growing to 1.0 as the slot's library fills; the selection gets the rest). Calibration fits energy
+  without the band (`calibrate.defaults` energy busy/empty are 0).
+- `suno/styles.json`: approved Suno prompts, BPM ranges, exclude lists and settings per style. Songs are made by hand in
+  the Suno web app, titled "O3 <style label> <bpm>", then `tools/suno_import.py add|export|unpack` brings them into
+  `library/` and moves them to the DJ device. Don't use the unofficial suno-api: it relies on a CAPTCHA-solving service.
+  `tools/suno_generate.py` is kept for an official API. Only Pro/Premier-plan songs are licensed for the cafe.
 - `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, levels them
   (loudness normalisation: `Cache.normalise` rewrites a cached file once; `data/normalised.json`), and analyses tempo.
   Never rewrite the playing file or the next one: Sonos pre-loads it and range-reads the file.

@@ -34,6 +34,9 @@ class FakeLibrary:
     def all(self):
         return list(self.tracks.values())
 
+    def counts(self):
+        return {g: len(self.in_genre(g)) for g in CFG["genres"]}
+
 
 class FakeCache:
     names = set()
@@ -128,7 +131,7 @@ def test_genre_change_repicks_after_the_next_track(dj, monkeypatch):
     started(dj)
     at_elapsed(dj, 30)
     nxt = dj.upcoming[0]
-    dj.set_inputs({"genres": ["asian"]})
+    dj.set_inputs({"genres": ["asian"], "moods": False})
     settle(dj, monkeypatch)
     dj.tick(1)
     assert dj.upcoming[0] == nxt  # pre-loaded by Sonos: kept
@@ -154,7 +157,7 @@ def test_mid_song_repick_never_stops_playback(dj, monkeypatch):
 def test_unknown_length_keeps_next_track(dj, monkeypatch):
     started(dj, duration=None)
     nxt = dj.upcoming[0]
-    dj.set_inputs({"genres": ["asian"]})
+    dj.set_inputs({"genres": ["asian"], "moods": False})
     settle(dj, monkeypatch)
     dj.tick(1)
     assert dj.upcoming[0] == nxt
@@ -262,7 +265,7 @@ def test_daypart_change_resets_trims_and_repicks(dj, monkeypatch):
     at_elapsed(dj, 30)
     dj.set_inputs({"energy_trim": -0.4, "volume_trim": -7})
     dj.dirty_at = None
-    dj.last_daypart = "some earlier daypart"
+    dj.last_daypart = ("some earlier daypart", dj.targets["mood_daypart"])
     calls = []
     monkeypatch.setattr(dj, "refresh_upcoming", lambda: calls.append(1) or True)
     dj.tick(1)
@@ -270,10 +273,23 @@ def test_daypart_change_resets_trims_and_repicks(dj, monkeypatch):
     assert calls and "trims reset" in dj.events[0]["msg"]
 
 
+def test_mood_change_repicks_but_keeps_trims(dj, monkeypatch):
+    started(dj)
+    at_elapsed(dj, 30)
+    dj.set_inputs({"energy_trim": -0.3})
+    dj.dirty_at = None
+    dj.last_daypart = (dj.targets["daypart"], "some earlier mood")
+    calls = []
+    monkeypatch.setattr(dj, "refresh_upcoming", lambda: calls.append(1) or True)
+    dj.tick(1)
+    assert calls and dj.inputs.energy_trim == -0.3
+    assert dj.events[0]["msg"].endswith("music")
+
+
 def test_simulated_time_does_not_reset_trims(dj):
     started(dj)
     dj.set_inputs({"energy_trim": -0.3, "hour_override": 21})
-    dj.last_daypart = "afternoon"
+    dj.last_daypart = ("afternoon", "afternoon")
     dj.tick(1)
     assert dj.inputs.energy_trim == -0.3
 
