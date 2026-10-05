@@ -72,6 +72,10 @@ def test_moods_follow_time_and_weather():
         w = {g: v for g, v in tgt(hour, weather=weather)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
         return max(w, key=w.get)
     assert top(9, "clear") == "bossa_house"
+    clear_afternoon = {g: v for g, v in tgt(15)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
+    total = sum(clear_afternoon.values())
+    assert {g: round(v / total, 2) for g, v in clear_afternoon.items()} == \
+        {"lofi_indie": 0.5, "electronic_lofi": 0.3, "whimsy_fantasy": 0.2}
     assert top(15, "cloudy") == "whimsy_fantasy"
     assert top(19, "rain") == "dark_academia"
     assert top(23, "clear") == "ambient_dream" and top(3, "rain") == "ambient_dream"

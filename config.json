@@ -21,7 +21,7 @@
     "indie_lofi_fantasy": { "label": "Evening Lofi",     "bpm": [68, 80],   "fallback": "chill" },
     "dark_academia":      { "label": "Dark Academia",    "bpm": [60, 72],   "fallback": "jazzy_cafe" },
     "ambient_dream":      { "label": "Ambient Dream",    "bpm": [55, 68],   "fallback": "chill" },
-    "electronic_lofi":    { "label": "Electronic Lofi",  "bpm": [104, 116], "fallback": "chill" }
+    "electronic_lofi":    { "label": "Electronic Lofi",  "bpm": [106, 114], "fallback": "chill" }
   },
   "default_genres": ["chill"],
   "min_tracks": 8,
@@ -38,7 +38,7 @@
       "rain":   { "jazzhop": 2.0, "dark_academia": 1.0 }
     },
     "afternoon": {
-      "clear":  { "lofi_indie": 2.0, "whimsy_fantasy": 0.5 },
+      "clear":  { "lofi_indie": 1.25, "electronic_lofi": 0.75, "whimsy_fantasy": 0.5 },
       "cloudy": { "whimsy_fantasy": 2.0, "lofi_indie": 1.0 },
       "rain":   { "whimsy_fantasy": 1.5, "jazzhop": 1.0, "dark_academia": 0.5 }
     },

@@ -147,7 +147,7 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [ ] Pro plan = 20 downloads a month (19 left on 5 Oct, resets 30 Oct). First pick: best 2-3 per timeslot.
 - [ ] Get the new code onto the live DJ device (merge to main, `git pull` there) before unpacking songs.
 - [x] A genre staff switch on plays as chosen even with few songs; only genres the moods matrix adds fall back to Chillify.
-- [ ] Decide where Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") sits in `moods`; it's a genre key only for now.
+- [x] Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") added to clear afternoons at 30% (Ghibli Lofi 50%, Whimsy Fantasy 20%).
 - [ ] Try classical and Ghibli-style music as extra genres.
 - [ ] Busy afternoons: staff want more upbeat, but the 70–90% band lowers energy/BPM. Decide which wins.
 - [ ] Future: generate music on the fly for the current slot; more parameters (key, instruments); lighting / further mood control.

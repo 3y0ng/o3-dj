@@ -139,17 +139,24 @@
     },
     "electronic_lofi": {
       "label": "Electronic Lofi",
-      "prompt": "electronic soul, deep house",
+      "prompt": "electronic soul deep house, steady deep-house pulse, analog synth chorus drifting softly through warm tape haze, mellow electric bass under a hypnotic lo-fi drum machine and soft, nostalgic synth layers",
       "modifiers": [],
       "bpm": [
-        104,
-        116
+        106,
+        114
       ],
       "vocals": false,
       "references": [
         "https://suno.com/song/8adeb1e7-1f98-41e0-aa02-152b2f5f18fc"
       ],
-      "notes": "6 Oct: new afternoon version made by hand ('Cloudy Afternoon Soul', ~110 bpm). On trial; not in the moods matrix yet."
+      "notes": "6 Oct: liked ('Cloudy Afternoon Soul'). Made by hand around 110 bpm with only 'beat drop' excluded. Plays 30% of new music on clear afternoons (Ghibli Lofi 50%, Whimsy Fantasy 20%). The two prompts rotate.",
+      "prompts": [
+        "electronic soul deep house, steady deep-house pulse, analog synth chorus drifting softly through warm tape haze, mellow electric bass under a hypnotic lo-fi drum machine and soft, nostalgic synth layers",
+        "ghibli lofi touch, late-night organic deep house beats, synthwave soul, minor key, moody analog synths, mellow electric bass, hypnotic lofi drum machine beat, nostalgic chillwave atmosphere"
+      ],
+      "exclude_only": [
+        "beat drop"
+      ]
     }
   },
   "pilot": {
