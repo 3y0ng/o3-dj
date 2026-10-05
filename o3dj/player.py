@@ -39,7 +39,17 @@ class SonosPlayer:
             for z in found:
                 self.zones[z.ip_address] = z
             if self.anchor_ip and self.anchor_ip not in self.zones:
-                self.zones[self.anchor_ip] = self.soco.SoCo(self.anchor_ip)
+                if self.zones:
+                    # The configured main room is offline (unplugged, off the Wi-Fi): lead from a room that's here,
+                    # preferring the coordinator of the biggest group, rather than failing to start.
+                    try:
+                        best = max(self.zones.values(), key=lambda z: len(z.group.members)).group.coordinator
+                    except Exception:
+                        best = sorted(self.zones.values(), key=lambda z: z.player_name)[0]
+                    log.warning("main room %s not found; using %s (%s)", self.anchor_ip, best.player_name, best.ip_address)
+                    self.anchor_ip = best.ip_address
+                else:  # discovery found nothing (e.g. multicast blocked): try the configured address directly
+                    self.zones[self.anchor_ip] = self.soco.SoCo(self.anchor_ip)
             if not self.anchor_ip and self.zones:
                 self.anchor_ip = sorted(self.zones.values(), key=lambda z: z.player_name)[0].ip_address
         return len(self.zones)
