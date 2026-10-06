@@ -166,6 +166,13 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
             volume += occ["max_volume"] * f
             reasons.append(f"busy {inputs.occupancy}% -> vol {occ['max_volume'] * f:+.0f}")
 
+    # Time-of-day volume rules for a quiet room, e.g. afternoons under 60% full play 5 steps quieter.
+    if inputs.occupancy_enabled:
+        for rule in cfg.get("occupancy", {}).get("volume_rules", []):
+            if mood_daypart(cfg, hour) == rule.get("part") and inputs.occupancy < rule.get("below", 0):
+                volume += rule["volume"]
+                reasons.append(f"{rule['part'].replace('_', ' ')} under {rule['below']}% full -> vol {rule['volume']:+d}")
+
     # Energy and tempo meet the room's need: lift an empty cafe, calm a packed one.
     bpm_shift, instrumental = 0, False
     band = occupancy_band(cfg, inputs.occupancy) if inputs.occupancy_enabled else None

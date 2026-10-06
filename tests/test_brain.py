@@ -67,6 +67,16 @@ def test_volume_rises_as_the_room_fills():  # 8am: a quiet hour, so there's room
     assert vols == sorted(vols) and vols[-1] > vols[0]
 
 
+def test_quiet_afternoon_plays_5_quieter():
+    def vol(hour, occ, known=True):
+        return tgt(hour, occupancy=occ, occupancy_enabled=known)["volume"]
+    assert vol(14, 40) == vol(14, 40, known=False) - 5  # afternoon under 60% full
+    assert vol(14, 59) == vol(14, 59, known=False) - 5
+    assert vol(14, 70) >= vol(14, 70, known=False)  # 60%+ full: no cut
+    assert vol(9, 40) == vol(9, 40, known=False)  # morning: no rule
+    assert any("under 60% full" in r for r in tgt(14, occupancy=40, occupancy_enabled=True)["reasons"])
+
+
 def test_moods_follow_time_and_weather():
     def top(hour, weather):  # the slot's leading new genre
         w = {g: v for g, v in tgt(hour, weather=weather)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}

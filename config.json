@@ -88,6 +88,9 @@
 
   "occupancy": {
     "threshold": 50, "max_volume": 6,
+    "volume_rules": [
+      { "part": "afternoon", "below": 60, "volume": -5 }
+    ],
     "bands": [
       [0,  15,  0.15,  8,   false, "make it feel alive"],
       [15, 40,  0.05,  0,   false, "warmth"],

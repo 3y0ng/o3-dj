@@ -115,6 +115,8 @@ occupancy** (louder as the room fills) and **genre complements time and weather*
 - **new_music**: the slot's new (Suno) genres get `start_share` (0.4) of the picks, rising to `full_share` (1.0) as each fills to
   `full_at_tracks` (30) songs; the current Chillify genres cover the rest, and stand in for a new genre that has fewer than `min_tracks`.
   Morning and evening keep Chill as 20% of their mix even when the Suno library is full (fewer songs to make).
+- **occupancy.volume_rules**: e.g. `{"part": "afternoon", "below": 60, "volume": -5}`: afternoons (12pm to 5pm)
+  under 60% full play 5 volume steps quieter. Only when occupancy is known.
 - **min_genre_run** (2): a genre plays at least this many songs in a row, so the music doesn't jump between styles,
   as long as it has a song that hasn't played recently.
 - **genres[...].volume_offset**: plays that genre a little quieter or louder (Sonos volume steps, auto volume only),
