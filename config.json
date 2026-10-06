@@ -19,12 +19,14 @@
     "lofi_indie":         { "label": "Ghibli Lofi",       "bpm": [86, 94],   "fallback": "chill" },
     "whimsy_fantasy":     { "label": "Whimsy Fantasy",   "bpm": [66, 76],   "fallback": "chill" },
     "indie_lofi_fantasy": { "label": "Evening Lofi",     "bpm": [68, 80],   "fallback": "chill" },
-    "dark_academia":      { "label": "Dark Academia",    "bpm": [60, 72],   "fallback": "jazzy_cafe" },
-    "ambient_dream":      { "label": "Ambient Dream",    "bpm": [55, 68],   "fallback": "chill" },
+    "dark_academia":      { "label": "Dark Academia",    "bpm": [60, 72],   "fallback": "jazzy_cafe", "volume_offset": -3 },
+    "ambient_dream":      { "label": "Ambient Dream",    "bpm": [55, 68],   "fallback": "chill", "volume_offset": -3 },
     "electronic_lofi":    { "label": "Electronic Lofi",  "bpm": [106, 114], "fallback": "chill" }
   },
   "default_genres": ["chill"],
   "min_tracks": 8,
+  "min_genre_run": 2,
+  "skip_crossfade_seconds": 8,
   "new_music": { "start_share": 0.4, "full_share": 1.0, "full_at_tracks": 30 },
   "source_weight": {},
   "vocals_penalty": 0.3,
@@ -33,9 +35,9 @@
   "moods": {
     "enabled": true,
     "morning": {
-      "clear":  { "bossa_house": 2.0, "jazzhop": 1.0 },
-      "cloudy": { "bossa_house": 2.0, "jazzhop": 1.0 },
-      "rain":   { "jazzhop": 2.0, "dark_academia": 1.0 }
+      "clear":  { "bossa_house": 2.0, "jazzhop": 1.0, "chill": 0.75 },
+      "cloudy": { "bossa_house": 2.0, "jazzhop": 1.0, "chill": 0.75 },
+      "rain":   { "jazzhop": 2.0, "dark_academia": 1.0, "chill": 0.75 }
     },
     "afternoon": {
       "clear":  { "lofi_indie": 1.25, "electronic_lofi": 0.75, "whimsy_fantasy": 0.5 },
@@ -43,9 +45,9 @@
       "rain":   { "whimsy_fantasy": 1.5, "jazzhop": 1.0, "dark_academia": 0.5 }
     },
     "evening": {
-      "clear":  { "indie_lofi_fantasy": 2.0, "lofi_indie": 0.5 },
-      "cloudy": { "indie_lofi_fantasy": 1.5, "dark_academia": 1.0 },
-      "rain":   { "dark_academia": 2.0, "ambient_dream": 1.0 }
+      "clear":  { "indie_lofi_fantasy": 2.0, "lofi_indie": 0.5, "chill": 0.625 },
+      "cloudy": { "indie_lofi_fantasy": 1.5, "dark_academia": 1.0, "chill": 0.625 },
+      "rain":   { "dark_academia": 2.0, "ambient_dream": 1.0, "chill": 0.75 }
     },
     "after_hours": {
       "clear":  { "ambient_dream": 2.0, "indie_lofi_fantasy": 0.5 },

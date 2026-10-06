@@ -217,7 +217,7 @@
       "vocals": false
     }
   },
-  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt.",
+  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt. Aim for 3:30-4:30 songs (Duration: Custom in More Options) to get more music per download: Premier allows 60 downloads a month. Songs already approved stay.",
   "exclude": [
     "vocals",
     "rap",
@@ -232,5 +232,6 @@
     "distortion",
     "aggressive",
     "loud drums"
-  ]
+  ],
+  "duration": "3:30-4:30"
 }

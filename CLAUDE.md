@@ -39,7 +39,8 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - Mood strategy in `brain.targets()`: `moods` (daypart × weather → genre weights, added on top of the selection unless
   `Inputs.moods` is off), occupancy `bands` (energy / BPM shift / instrumental; volume still rises with occupancy),
   per-genre `bpm` (+ `bpm_ramp`) + `fallback` (a genre under `min_tracks` hands weight to its fallback), and `new_music` (the mood genres'
-  share: 0.4 growing to 1.0 as the slot's library fills; the selection gets the rest). Calibration fits energy
+  share: 0.4 growing to 1.0 as the slot's library fills; the selection gets the rest; chill is 20% of morning/evening moods),
+  `min_genre_run` (DJ passes `stay_in` to `brain.pick`) and per-genre `volume_offset` (`DJ.genre_volume_offset`). Calibration fits energy
   without the band (`calibrate.defaults` energy busy/empty are 0).
 - `suno/styles.json`: approved Suno prompts, BPM ranges, exclude lists and settings per style. Songs are made by hand in
   the Suno web app, titled "O3 <style label> <bpm>", then `tools/suno_import.py add|export|unpack` brings them into
@@ -74,7 +75,8 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - Count a play only once the speaker reports PLAYING.
 - Play mode / crossfade can't be set while the source is Spotify Connect (UPnP 712). Switch to the queue first, and treat those settings as best-effort.
 - A foreign URI playing (Spotify, `x-sonos-vli:`) means someone else took over: the DJ stands down and doesn't adopt it.
-- Sonos crossfade only applies to natural track changes, not manual skips; skips use our own group-volume fade (`_fade_skip`).
+- Sonos crossfade only applies to natural track changes, not manual skips. Skips seek to the last `skip_crossfade_seconds`
+  so the speaker crossfades naturally; with an unknown length they fall back to our own group-volume fade (`_fade_skip`).
 - Always queue tracks with this laptop's `/media/cache/<name>` URL (not the remote URL): cached files start instantly and
   survive internet drops; `server.py` passes uncached ones through from the source.
 - Queue item IDs `Q:0/n` are positions (SoCo's `remove_from_queue` is 0-based).

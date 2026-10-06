@@ -144,7 +144,13 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
   Suno settings per style (`suno_settings`) aren't sent by the generator yet: check whether the API supports them.
 - [x] API (5 Oct): dropped the unofficial suno-api (needs 2Captcha to solve Suno's hCaptcha). Songs are made in the Suno web app
   and added with `tools/suno_import.py`; `export`/`unpack` move them to the live DJ device in one zip.
-- [ ] Pro plan = 20 downloads a month (19 left on 5 Oct, resets 30 Oct). First pick: best 2-3 per timeslot.
+- [x] Upgraded to Premier (6 Oct): 60 downloads a month. New songs aim for 3:30-4:30; Chill stays 20% of morning/evening.
+- [x] Dark Academia and Ambient Dream play 3 volume steps quieter (`volume_offset`); levelling had raised them +1.5 to +1.7 dB.
+- [x] At least two songs of a genre in a row (`min_genre_run`); skips crossfade by jumping to the song's last 8 s.
+- [ ] Check by ear on the speakers: the skip crossfade window (8 s might feel slow if the Sonos crossfade is shorter),
+  and whether -3 is right for the quiet styles.
+- [ ] Smoother transitions (proposal): order songs so neighbours are close in BPM/energy (and key, once known); a real
+  DJ-style mix (tempo-matched, EQ'd crossfades) would mean streaming one continuous mix from the laptop instead of a Sonos queue.
 - [ ] Get the new code onto the live DJ device (merge to main, `git pull` there) before unpacking songs.
 - [x] A genre staff switch on plays as chosen even with few songs; only genres the moods matrix adds fall back to Chillify.
 - [x] Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") added to clear afternoons at 30% (Ghibli Lofi 50%, Whimsy Fantasy 20%).

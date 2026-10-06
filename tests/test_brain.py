@@ -92,8 +92,11 @@ def test_new_music_share_grows_with_the_library():
     start = new_share({**base, "bossa_house": 8, "jazzhop": 8})  # just past min_tracks, so no fallback
     half = new_share({**base, "bossa_house": full // 2, "jazzhop": full // 2})
     done = new_share({**base, "bossa_house": full, "jazzhop": full})
-    assert abs(tgt(9)["weights"]["chill"] - (1 - CFG["new_music"]["start_share"])) < 0.01
-    assert start < half < done and abs(done - CFG["new_music"]["full_share"]) < 0.01
+    s0 = CFG["new_music"]["start_share"]
+    assert abs(tgt(9)["weights"]["chill"] - ((1 - s0) + s0 * 0.2)) < 0.01  # selection + chill's 20% of the mix
+    assert start < half < done and abs(done - CFG["new_music"]["full_share"] * 0.8) < 0.01
+    full_lib = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts={**base, "bossa_house": full, "jazzhop": full})
+    assert abs(full_lib["weights"]["chill"] - 0.2) < 0.01  # morning keeps 20% chill even when Suno is full
     empty = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts=base)["weights"]
     assert not any(CFG["genres"].get(g, {}).get("fallback") for g in empty)  # Chillify covers an empty slot
 

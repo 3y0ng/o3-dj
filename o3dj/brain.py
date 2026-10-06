@@ -77,7 +77,10 @@ def new_music_share(cfg, mood, counts=None):
     if counts is None or not mood:
         return start
     need = nm.get("full_at_tracks", 30)
-    fill = sum(w * min(1.0, counts.get(g, 0) / need) for g, w in mood.items()) / sum(mood.values())
+    new = {g: w for g, w in mood.items() if cfg.get("genres", {}).get(g, {}).get("fallback")}  # e.g. not chill
+    if not new:
+        return full
+    fill = sum(w * min(1.0, counts.get(g, 0) / need) for g, w in new.items()) / sum(new.values())
     return start + (full - start) * fill
 
 
@@ -283,17 +286,22 @@ def score(t, tgt, energy_of, bpm_of, votes):
     return s * tgt.get("source_weight", {}).get(t.source, 1.0)
 
 
-def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None):
+def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None, stay_in=None):
     """Choose a genre by weight, then a track in it by energy/tempo match x votes.
 
     tracks_by_genre: {genre: [Track]}; energy_of(id) -> float|None; bpm_of(track) -> float|None;
     votes: {id: {...}}; recent: set of ids to avoid; available(track) -> bool.
+    stay_in: a genre to try first (so a genre plays at least min_genre_run songs in a row), if it's still wanted
+    and has a song that hasn't played recently (a song is never repeated just to make a pair).
     """
     genres = [g for g, w in tgt["weights"].items() if w > 0 and tracks_by_genre.get(g)]
     for relax in (False, True):
         pool_g = list(genres)
         while pool_g:
-            g = rng.choices(pool_g, weights=[tgt["weights"][x] for x in pool_g])[0]
+            if stay_in in pool_g:
+                g = stay_in
+            else:
+                g = rng.choices(pool_g, weights=[tgt["weights"][x] for x in pool_g])[0]
             cands, scores = [], []
             for t in tracks_by_genre[g]:
                 v = votes.get(t.id)

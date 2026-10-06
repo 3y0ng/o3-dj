@@ -222,16 +222,43 @@ class DJ:
         """A sidecar's tempo (what the track was generated at) beats the ffmpeg estimate."""
         return t.bpm or (self.meta.get(t.id) or {}).get("bpm")
 
+    def _recent_genres(self):
+        """Genres of what played and what's queued, oldest first (the queue continues the history)."""
+        played = [h["id"] for h in list(self.history)[-6:]]
+        queued = self.queued_ids()
+        if played and queued and played[-1] == queued[0]:
+            played = played[:-1]
+        out = []
+        for tid in played + queued:
+            t = self.library.get(tid)
+            out.append(t.genre if t else None)
+        return out
+
+    def _stay_in(self, genres):
+        """The last genre, if it hasn't played min_genre_run songs in a row yet."""
+        need = self.cfg.get("min_genre_run", 1)
+        if not genres or genres[-1] is None or need <= 1:
+            return None
+        run = 0
+        for g in reversed(genres):
+            if g != genres[-1]:
+                break
+            run += 1
+        return genres[-1] if run < need else None
+
     def pick(self, n=1, exclude=()):
         tgt = self.targets
         by_genre = {g: self.library.in_genre(g) for g in tgt["weights"]}
         recent = {h["id"] for h in list(self.history)[-60:]} | set(self.queued_ids()) | set(exclude)
+        genres = self._recent_genres()
         out = []
         for _ in range(n):
-            t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available, bpm_of=self.bpm_of)
+            t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available, bpm_of=self.bpm_of,
+                           stay_in=self._stay_in(genres))
             if not t:
                 break
             recent.add(t.id)
+            genres.append(t.genre)
             out.append(t)
         if len(out) < n:
             self.event("no playable tracks for this mood" if not out else "running low on tracks")
@@ -385,7 +412,17 @@ class DJ:
             self.paused = False
 
     def _next(self):
-        """Skip, with a quick fade out/in so it isn't a hard cut into silence."""
+        """Skip. With crossfade on, jump to the last few seconds of the song so the speaker's own crossfade
+        carries into the next one (Sonos only crossfades natural track changes). Otherwise, or if the song's
+        length is unknown, a quick fade out/in so it isn't a hard cut into silence."""
+        window = self.cfg.get("skip_crossfade_seconds", 0)
+        left = self.seconds_left()
+        if self.cfg.get("crossfade") and window and left is not None and left > window + 2:
+            dur = self.meta.duration(self.now_id) if self.now_id else None
+            dur = dur or self.status.get("duration")
+            if dur:
+                self.player.seek(dur - window)
+                return
         if not self.fade_skips or self.fading:
             return self.player.next()
         self.fading = True
@@ -810,8 +847,14 @@ class DJ:
         self.save()
         self.event(f"eq: kept the speakers' tone (bass {base['bass']:+d}, treble {base['treble']:+d})")
 
+    def genre_volume_offset(self):
+        """Volume offset for the playing song's genre (config genres[...].volume_offset), e.g. -3 for quiet styles
+        that loudness levelling brought up to the same loudness as busier music."""
+        t = self.library.get(self.now_id) if self.now_id else None
+        return self.cfg.get("genres", {}).get(t.genre, {}).get("volume_offset", 0) if t else 0
+
     def _apply_volume(self, max_step=2):
-        target = self.targets["volume"]
+        target = self.targets["volume"] + (self.genre_volume_offset() if self.inputs.auto else 0)
         names = {s["ip"]: s["name"] for s in self.speakers}
         vols = self.player.volumes()
         for ip, cur in vols.items():
