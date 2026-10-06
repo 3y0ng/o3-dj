@@ -61,6 +61,9 @@ def make_dj(tmp_path, player=None):
     d = dj_mod.DJ(CFG, player or MockPlayer(track_seconds=1000), FakeLibrary(), FakeCache(), FakeMeta(),
                   state_file=tmp_path / "state.json")
     d.fade_skips = False  # fades run in a thread with sleeps; tested separately
+    d.cfg = {**CFG, "skip_crossfade_seconds": 0,  # plain skips; the crossfade skip is tested separately
+             # no per-genre volume offsets, so volume checks don't depend on which genre the clock picks
+             "genres": {g: {k: v for k, v in c.items() if k != "volume_offset"} for g, c in CFG["genres"].items()}}
     return d
 
 
@@ -109,6 +112,55 @@ def test_skip_advances_tops_up_and_has_cooldown(dj):
     assert len(dj.upcoming) == CFG["queue_ahead"]
     dj.skip(); dj.tick(2)  # double tap within cooldown is ignored
     assert dj.now_id == nxt
+
+
+def test_skip_with_crossfade_jumps_to_the_last_seconds(dj):
+    dj.player.duration_of = lambda uri: 200  # the mock speaker knows the real length too
+    started(dj)
+    dj.cfg["skip_crossfade_seconds"] = 8
+    at_elapsed(dj, 30)
+    first, nxt = dj.now_id, dj.upcoming[0]
+    dj.skip(); dj.tick(1)
+    assert dj.now_id == first and 191 <= dj.player.status()["elapsed"] <= 193  # outro plays, speaker crossfades
+    at_elapsed(dj, 201)  # the song ends naturally
+    dj.tick(2)
+    assert dj.now_id == nxt and dj.votes[first]["skip"] == 1
+
+
+def test_skip_without_known_length_falls_back_to_next(dj):
+    started(dj, duration=None)
+    dj.cfg["skip_crossfade_seconds"] = 8
+    nxt = dj.upcoming[0]
+    dj.skip(); dj.tick(1)
+    assert dj.now_id == nxt
+
+
+def test_each_genre_plays_at_least_twice_in_a_row(dj):
+    dj.set_inputs({"genres": ["chill", "jazzy_cafe", "asian"], "moods": False})
+    started(dj)
+    seq = []
+    for i in range(20):  # fewer than each genre's 20 songs: a genre with no fresh song left ends its run early
+        seq.append(dj.library.get(dj.now_id).genre)
+        dj.skip(); dj.last_skip = 0; dj.tick(i + 1)
+    runs, n = [], 1
+    for a, b in zip(seq, seq[1:]):
+        if a == b:
+            n += 1
+        else:
+            runs.append(n); n = 1
+    assert len(runs) >= 2 and min(runs) >= 2  # every completed run is 2+ songs, and genres do change
+
+
+def test_quiet_genres_play_a_little_quieter(dj):
+    dj.cfg = {**dj.cfg, "genres": {**CFG["genres"], "chill": {**CFG["genres"]["chill"], "volume_offset": -3}}}
+    dj.set_inputs({"genres": ["chill"], "moods": False})
+    started(dj)
+    dj._apply_volume(max_step=100)
+    assert dj.library.get(dj.now_id).genre == "chill"
+    assert set(dj.player.volumes().values()) == {dj.targets["volume"] - 3}
+    dj.set_inputs({"auto": False, "manual_volume": 30})
+    dj._apply_volume(max_step=100)
+    assert set(dj.player.volumes().values()) == {30}  # a hand-set volume is left alone
 
 
 def test_downvote_skips_current(dj):

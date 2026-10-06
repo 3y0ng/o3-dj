@@ -28,9 +28,12 @@ Below `min_tracks` (8) a new genre hands its share to its Chillify fallback genr
 2. Download the keepers as MP3. Pro includes 20 downloads a month; pick the best.
 3. `python3 tools/suno_import.py add ~/Downloads/O3*.mp3`: copies them into `library/<style>/` with a sidecar
    (style and BPM come from the title) and levels loudness. Running it twice adds nothing twice.
-4. Move them to the DJ device: `python3 tools/suno_import.py export o3-music.zip`, copy the zip over (AirDrop, USB, Drive),
-   then on the DJ device in the o3-dj folder: `python3 tools/suno_import.py unpack o3-music.zip` and `./dj.sh restart`.
-   Only Suno songs travel; the zip can be unpacked again later with new songs (existing ones are skipped).
+4. Move them to the DJ device: `python3 tools/suno_import.py export` writes `~/Downloads/o3-music-<date>.zip`. Copy it into
+   the DJ device's Downloads folder (AirDrop, USB, Drive), then in the o3-dj folder there run `./dj.sh update`: it pulls the
+   latest code, unpacks the newest `o3-music*.zip` and restarts the DJ if it's running. Only Suno songs travel, and songs
+   already on the device are skipped, so the zip can always hold the whole Suno library.
+5. Two takes of one prompt are named "... A" and "... B" (e.g. `O3 Bossa Nova 120 A`). Vary Weirdness between generations
+   (`weirdness` in suno/styles.json: 50-80, Dark Academia and Ambient Dream 35-60, fantasy 45-65).
 
 - **Licence**: Suno songs may only be used commercially if they were made on a paid plan (Pro/Premier) at the time.
   `add --plan` defaults to pro; songs added with another plan get `"commercial": false` and the DJ skips them.

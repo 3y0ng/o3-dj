@@ -6,6 +6,8 @@
 #   ./dj.sh restart          stop + start; the DJ picks up its own queue where it left off
 #   ./dj.sh status           is it running, and what's playing
 #   ./dj.sh log              follow the log (Ctrl-C stops following, not the DJ)
+#   ./dj.sh update [zip]     pull the latest code, add new Suno songs from the newest ~/Downloads/o3-music*.zip
+#                            (or the zip given), and restart the DJ if it's running
 
 cd "${0:A:h}" || exit 1
 PY=.venv/bin/python
@@ -70,11 +72,23 @@ EOF
   curl -s -m 3 "http://localhost:$PORT/api/state" | /usr/bin/python3 -c "$code" 2>/dev/null || echo "  (not answering on port $PORT)"
 }
 
+update() {
+  if [[ -n $(git status --porcelain --untracked-files=no 2>/dev/null) ]]; then
+    echo "local code changes here - skipping git pull (commit or discard them to get updates)"
+  else
+    git pull --ff-only || echo "git pull failed - carrying on with the code already here"
+  fi
+  [[ -x $PY ]] || { echo "no $PY - create it: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; return 1; }
+  $PY tools/suno_import.py unpack "$@" || return 1
+  if running; then stop; start; else echo "DJ not running - ./dj.sh start when you're ready"; fi
+}
+
 case ${1:-status} in
   start)   shift; start "$@" ;;
   stop)    stop ;;
   restart) shift; stop; start "$@" ;;
   status)  if running; then echo "O3 DJ running (pid $(<$PIDFILE)) - http://localhost:$PORT"; state; else echo "not running"; fi ;;
   log)     tail -n 40 -f $LOG ;;
-  *)       echo "usage: ./dj.sh start [--mock] | stop | restart | status | log"; exit 1 ;;
+  update)  shift; update "$@" ;;
+  *)       echo "usage: ./dj.sh start [--mock] | stop | restart | status | log | update [zip]"; exit 1 ;;
 esac

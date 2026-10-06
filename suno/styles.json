@@ -84,7 +84,10 @@
         "distortion"
       ],
       "suno_settings": {
-        "weirdness": 55,
+        "weirdness": [
+          45,
+          65
+        ],
         "style_influence": 70,
         "variety": "High"
       }
@@ -119,7 +122,13 @@
         "https://www.youtube.com/watch?v=VMAPTo7RVCo",
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
-      "notes": "Tried 30 Sep: good, keep."
+      "notes": "Tried 30 Sep: good, keep.",
+      "suno_settings": {
+        "weirdness": [
+          35,
+          60
+        ]
+      }
     },
     "ambient_dream": {
       "label": "Ambient Dream",
@@ -135,21 +144,34 @@
         "https://www.youtube.com/watch?v=Kylm5L2mVzY",
         "https://www.youtube.com/watch?v=LIKhAQlCbfI"
       ],
-      "notes": "Tried 30 Sep: good, keep."
+      "notes": "Tried 30 Sep: good, keep.",
+      "suno_settings": {
+        "weirdness": [
+          35,
+          60
+        ]
+      }
     },
     "electronic_lofi": {
       "label": "Electronic Lofi",
-      "prompt": "electronic soul, deep house",
+      "prompt": "electronic soul deep house, steady deep-house pulse, analog synth chorus drifting softly through warm tape haze, mellow electric bass under a hypnotic lo-fi drum machine and soft, nostalgic synth layers",
       "modifiers": [],
       "bpm": [
-        104,
-        116
+        106,
+        114
       ],
       "vocals": false,
       "references": [
         "https://suno.com/song/8adeb1e7-1f98-41e0-aa02-152b2f5f18fc"
       ],
-      "notes": "6 Oct: new afternoon version made by hand ('Cloudy Afternoon Soul', ~110 bpm). On trial; not in the moods matrix yet."
+      "notes": "6 Oct: liked ('Cloudy Afternoon Soul'). Made by hand around 110 bpm with only 'beat drop' excluded. Plays 30% of new music on clear afternoons (Ghibli Lofi 50%, Whimsy Fantasy 20%). The two prompts rotate.",
+      "prompts": [
+        "electronic soul deep house, steady deep-house pulse, analog synth chorus drifting softly through warm tape haze, mellow electric bass under a hypnotic lo-fi drum machine and soft, nostalgic synth layers",
+        "ghibli lofi touch, late-night organic deep house beats, synthwave soul, minor key, moody analog synths, mellow electric bass, hypnotic lofi drum machine beat, nostalgic chillwave atmosphere"
+      ],
+      "exclude_only": [
+        "beat drop"
+      ]
     }
   },
   "pilot": {
@@ -210,7 +232,7 @@
       "vocals": false
     }
   },
-  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt.",
+  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt. Aim for 3:30-4:30 songs (Duration: Custom in More Options) to get more music per download: Premier allows 60 downloads a month. Songs already approved stay.",
   "exclude": [
     "vocals",
     "rap",
@@ -225,5 +247,14 @@
     "distortion",
     "aggressive",
     "loud drums"
-  ]
+  ],
+  "duration": "3:30-4:30",
+  "weirdness": {
+    "vary": true,
+    "default": [
+      50,
+      80
+    ],
+    "_about": "Change Weirdness on every generation, spread across the style's range, so takes differ. Below 50 is safer and more typical (suits calm styles, where surprises are jarring); above 50 adds variety and unusual instruments. Style Influence stays at the style's value."
+  }
 }

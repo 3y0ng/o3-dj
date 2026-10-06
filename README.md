@@ -33,11 +33,12 @@ to move it, and double-tap to reset it.
 | **orange fader** time | simulates a time of day (bottom = midnight) so you can test evening vs afternoon. **clock** key or a double-click returns to the real time. |
 
 Fader trims (volume/energy) reset automatically when the real clock moves into the next part of the day.
-| **genre** keys | pick several. The counts show cached/total tracks. **auto** (on by default) adds the genres that suit the time of day and weather (`moods` in config.json) on top of your picks; switch it off to play only what you picked. |
+| **genre** keys | two rows: the playlists (chill, jazzy cafe, asian), then the new music in the order it plays through the day. Pick several. The counts show cached/total tracks. **auto** (on by default) adds the genres that suit the time of day and weather (`moods` in config.json) on top of your picks; switch it off to play only what you picked. |
 | **weather** keys | cloudy leans jazzier; rain leans jazzier, softer and calmer, and brings jazz in even if not selected. |
 | **play / skip** | play starts the DJ. **This replaces the main room's Sonos queue.** |
 | **listen** (slide switch on the unit's left side) | plays what the speakers are playing on this phone or laptop, in step with them (it streams the same file from the DJ laptop and follows the speaker's position to within a few hundredths of a second in mock mode, about half a second on real Sonos, nudging its speed rather than jumping). It acts as one more speaker in the group: it follows the group level, so fades and auto volume can be heard, but not the main room's own level offset or mute. The device volume sets the overall level. On by default in demo mode (only while the page is in front, so a forgotten tab stays quiet), off in live mode; sliding it remembers your choice on that device, and switched on by hand it keeps playing in the background. Browsers only start sound after a tap, so if its LED blinks, tap anywhere. In `--mock`, songs last their real length (measured once cached; `mock_track_seconds` until then). |
 | **love it / not this** | votes. "not this" skips; 3 net downvotes remove a track from rotation. You can also vote on "up next". |
+| **skip** | with crossfade on, jumps to the last `skip_crossfade_seconds` (8) of the song so the speakers crossfade into the next one; if the song's length isn't known yet, a quick fade down and up instead. |
 | **rooms** | one channel strip per speaker, with the room name printed at the top and a small LCD showing its state and volume. The **on** switch adds the room to the synced group or takes it out. Switching off the **main** room hands the music to another room in the group, which becomes main; if it's the only room playing, the music pauses. |
 | **main** (on each room) | makes that room the main room: it leads the group and holds the queue. The music carries on; a room that's off joins first. Remembered across restarts. |
 | **room fader** (on each room) | that room's volume relative to the main volume, in five printed detents (−10, −5, 0, +5, +10; `room_offset_steps` in `config.json`). Drag, scroll or arrow keys; double-click resets. Saved per room; starts from `room_volume_offsets`. |
@@ -113,6 +114,13 @@ occupancy** (louder as the room fills) and **genre complements time and weather*
   stands in while it has fewer than `min_tracks` tracks (its weight moves over in proportion).
 - **new_music**: the slot's new (Suno) genres get `start_share` (0.4) of the picks, rising to `full_share` (1.0) as each fills to
   `full_at_tracks` (30) songs; the current Chillify genres cover the rest, and stand in for a new genre that has fewer than `min_tracks`.
+  Morning and evening keep Chill as 20% of their mix even when the Suno library is full (fewer songs to make).
+- **occupancy.volume_rules**: e.g. `{"part": "afternoon", "below": 60, "volume": -5}`: afternoons (12pm to 5pm)
+  under 60% full play 5 volume steps quieter. Only when occupancy is known.
+- **min_genre_run** (2): a genre plays at least this many songs in a row, so the music doesn't jump between styles,
+  as long as it has a song that hasn't played recently.
+- **genres[...].volume_offset**: plays that genre a little quieter or louder (Sonos volume steps, auto volume only),
+  e.g. -3 for Dark Academia and Ambient Dream: levelling brings quiet styles up to the same loudness as busier music.
 - **source_weight** (optional per-source preference within a genre), **vocals_penalty** (×0.3 for vocal tracks when the room needs calm).
 - **min_volume / max_volume**: hard safety limits. **room_volume_offsets**: starting per-room levels, e.g. `{"Cafe Entrance": 4}`; the fader on each room overrides them.
 
@@ -161,7 +169,8 @@ See [library/README.md](library/README.md): drop files into `library/<genre>/`, 
 the "add a track" box, or write a new source class in `o3dj/library.py`.
 
 **Suno**: make songs in the Suno web app from the prompts in `suno/styles.json`, download them, then
-`python3 tools/suno_import.py add ~/Downloads/O3*.mp3`. `export` / `unpack` move them to the DJ device in one zip.
+`python3 tools/suno_import.py add ~/Downloads/O3*.m4a`, then `python3 tools/suno_import.py export` and, on the DJ device,
+`./dj.sh update` (pulls the code, unpacks the newest zip from Downloads, restarts).
 See [library/README.md](library/README.md#suno) for the steps and the licence rule.
 Only play music O3 is licensed to use in a commercial venue.
 

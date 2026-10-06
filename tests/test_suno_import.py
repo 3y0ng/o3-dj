@@ -80,3 +80,14 @@ def test_unpack_ignores_paths_outside_the_library(tmp_path):
     lib.mkdir()
     assert si.unpack(z, lib, log=quiet) == 0
     assert not any(lib.rglob("*")) and not (tmp_path / "evil").exists()
+
+
+def test_unpack_finds_the_newest_zip(tmp_path):
+    import os
+    old, new = tmp_path / "o3-music.zip", tmp_path / "o3-music-2026-10-06.zip"
+    for p, t in ((old, 1000), (new, 2000)):
+        p.write_bytes(b"PK")
+        os.utime(p, (t, t))
+    (tmp_path / "other.zip").write_bytes(b"PK")
+    assert si.newest_zip(tmp_path) == new
+    assert si.newest_zip(tmp_path / "missing") is None

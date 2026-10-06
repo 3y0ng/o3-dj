@@ -67,11 +67,25 @@ def test_volume_rises_as_the_room_fills():  # 8am: a quiet hour, so there's room
     assert vols == sorted(vols) and vols[-1] > vols[0]
 
 
+def test_quiet_afternoon_plays_5_quieter():
+    def vol(hour, occ, known=True):
+        return tgt(hour, occupancy=occ, occupancy_enabled=known)["volume"]
+    assert vol(14, 40) == vol(14, 40, known=False) - 5  # afternoon under 60% full
+    assert vol(14, 59) == vol(14, 59, known=False) - 5 + 1  # still gets the small busy bump above 50%
+    assert vol(14, 70) >= vol(14, 70, known=False)  # 60%+ full: no cut
+    assert vol(9, 40) == vol(9, 40, known=False)  # morning: no rule
+    assert any("under 60% full" in r for r in tgt(14, occupancy=40, occupancy_enabled=True)["reasons"])
+
+
 def test_moods_follow_time_and_weather():
     def top(hour, weather):  # the slot's leading new genre
         w = {g: v for g, v in tgt(hour, weather=weather)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
         return max(w, key=w.get)
     assert top(9, "clear") == "bossa_house"
+    clear_afternoon = {g: v for g, v in tgt(15)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
+    total = sum(clear_afternoon.values())
+    assert {g: round(v / total, 2) for g, v in clear_afternoon.items()} == \
+        {"lofi_indie": 0.5, "electronic_lofi": 0.3, "whimsy_fantasy": 0.2}
     assert top(15, "cloudy") == "whimsy_fantasy"
     assert top(19, "rain") == "dark_academia"
     assert top(23, "clear") == "ambient_dream" and top(3, "rain") == "ambient_dream"
@@ -88,8 +102,11 @@ def test_new_music_share_grows_with_the_library():
     start = new_share({**base, "bossa_house": 8, "jazzhop": 8})  # just past min_tracks, so no fallback
     half = new_share({**base, "bossa_house": full // 2, "jazzhop": full // 2})
     done = new_share({**base, "bossa_house": full, "jazzhop": full})
-    assert abs(tgt(9)["weights"]["chill"] - (1 - CFG["new_music"]["start_share"])) < 0.01
-    assert start < half < done and abs(done - CFG["new_music"]["full_share"]) < 0.01
+    s0 = CFG["new_music"]["start_share"]
+    assert abs(tgt(9)["weights"]["chill"] - ((1 - s0) + s0 * 0.2)) < 0.01  # selection + chill's 20% of the mix
+    assert start < half < done and abs(done - CFG["new_music"]["full_share"] * 0.8) < 0.01
+    full_lib = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts={**base, "bossa_house": full, "jazzhop": full})
+    assert abs(full_lib["weights"]["chill"] - 0.2) < 0.01  # morning keeps 20% chill even when Suno is full
     empty = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts=base)["weights"]
     assert not any(CFG["genres"].get(g, {}).get("fallback") for g in empty)  # Chillify covers an empty slot
 

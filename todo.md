@@ -144,10 +144,20 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
   Suno settings per style (`suno_settings`) aren't sent by the generator yet: check whether the API supports them.
 - [x] API (5 Oct): dropped the unofficial suno-api (needs 2Captcha to solve Suno's hCaptcha). Songs are made in the Suno web app
   and added with `tools/suno_import.py`; `export`/`unpack` move them to the live DJ device in one zip.
-- [ ] Pro plan = 20 downloads a month (19 left on 5 Oct, resets 30 Oct). First pick: best 2-3 per timeslot.
+- [x] Upgraded to Premier (6 Oct): 60 downloads a month. New songs aim for 3:30-4:30; Chill stays 20% of morning/evening.
+- [x] Dark Academia and Ambient Dream play 3 volume steps quieter (`volume_offset`); levelling had raised them +1.5 to +1.7 dB.
+- [x] At least two songs of a genre in a row (`min_genre_run`); skips crossfade by jumping to the song's last 8 s.
+- [x] Afternoons under 60% full play 5 volume steps quieter (`occupancy.volume_rules`).
+- [x] 6 Oct: 32 more Suno songs (4:00 each, A/B takes), 40 in all, 5 per style; `./dj.sh update` brings code + songs to the DJ device.
+  Genre keys: playlists row + new-music row in time-of-day order, two-line labels, a colour per style.
+- [ ] Next batch: vary Weirdness per generation (forgot on 6 Oct; that batch was all 65 / fantasy 55). 28 downloads left this month.
+- [ ] Check by ear on the speakers: the skip crossfade window (8 s might feel slow if the Sonos crossfade is shorter),
+  and whether -3 is right for the quiet styles.
+- [ ] Smoother transitions (proposal): order songs so neighbours are close in BPM/energy (and key, once known); a real
+  DJ-style mix (tempo-matched, EQ'd crossfades) would mean streaming one continuous mix from the laptop instead of a Sonos queue.
 - [ ] Get the new code onto the live DJ device (merge to main, `git pull` there) before unpacking songs.
 - [x] A genre staff switch on plays as chosen even with few songs; only genres the moods matrix adds fall back to Chillify.
-- [ ] Decide where Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") sits in `moods`; it's a genre key only for now.
+- [x] Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") added to clear afternoons at 30% (Ghibli Lofi 50%, Whimsy Fantasy 20%).
 - [ ] Try classical and Ghibli-style music as extra genres.
 - [ ] Busy afternoons: staff want more upbeat, but the 70–90% band lowers energy/BPM. Decide which wins.
 - [ ] Future: generate music on the fly for the current slot; more parameters (key, instruments); lighting / further mood control.

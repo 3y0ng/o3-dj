@@ -299,6 +299,18 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 .key.dark:active { box-shadow: 0 1px 0 #1c1d1f, inset 0 1px 0 rgba(255,255,255,.18); }
 .key .swatch { width: 18px; height: 18px; border-radius: 50%; background: var(--sw); box-shadow: inset 0 -2px 2px rgba(0,0,0,.2), inset 0 1px 1px rgba(255,255,255,.5); }
 .key .count { font-family: var(--mono); font-size: 9px; color: #999; }
+/* genre keys: playlists row + new-music row; long names wrap onto two lines instead of spilling out of the key */
+.genre-rows { display: flex; flex-direction: column; gap: 10px; }
+.gsub { display: flex; flex-direction: column; gap: 5px; }
+.gsub-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: .04em; color: var(--ink-soft); margin-left: 2px; }
+.gsub-keys { display: flex; flex-wrap: wrap; gap: 7px; }
+.gkey { width: 72px; height: 72px; gap: 3px; padding: 14px 4px 6px; justify-content: flex-start; }
+.gkey .swatch { width: 14px; height: 14px; flex: none; }
+.gkey em { white-space: normal; text-align: center; line-height: 1.1; max-width: 64px; min-height: 22px;
+  display: flex; align-items: center; justify-content: center; overflow-wrap: anywhere; }
+.gkey.dark em { min-height: 0; margin-top: 8px; }
+.gkey .count { font-size: 8.5px; margin-top: auto; }
+.key.dark .count { color: #8d9094; }
 
 /* ── demo / live slide switch ───────────────────────────── */
 .knob-panel {
@@ -556,6 +568,8 @@ form .row { display: flex; gap: 7px; }
   .side-label { left: 3px; }
   .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .key { width: auto; }
+  .gsub-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }  /* 3 playlists, auto + 8 styles: full rows */
+  .key.gkey { width: auto; height: 78px; padding-bottom: 9px; }
 
   form input, form select { font-size: 16px; }
   .votes { gap: 8px; }

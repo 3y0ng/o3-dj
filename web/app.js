@@ -3,7 +3,12 @@
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const GENRE_COLORS = { chill: "#3d8bff", jazzy_cafe: "#ff6b2c", asian: "#2fd37f" };
+const GENRE_COLORS = {
+  chill: "#3d8bff", jazzy_cafe: "#ff6b2c", asian: "#2fd37f",
+  // timeslot styles, warm morning to cool night
+  bossa_house: "#ffc83d", jazzhop: "#e0a458", lofi_indie: "#5ec8c8", electronic_lofi: "#c77dff",
+  whimsy_fantasy: "#7a9e7e", indie_lofi_fantasy: "#ff8fa3", dark_academia: "#8a5a44", ambient_dream: "#6c7bd9",
+};
 const EXTRA_COLORS = ["#f1f1ee", "#ffd23d", "#c77dff", "#ff4f8b"];
 const WEATHER_GLYPH = { clear: "☀ clear", cloudy: "☁ cloudy", rain: "☂ rain" };
 
@@ -693,11 +698,17 @@ function renderGenreKeys(s) {
   const keys = Object.keys(s.genres);
   if (wrap.dataset.keys !== keys.join()) {
     wrap.dataset.keys = keys.join();
-    wrap.innerHTML = `<button class="key dark" data-moods title="add genres for the time of day and weather"><span class="led"></span><em>auto</em></button>` +
-      keys.map((g, k) =>
-      `<button class="key" data-genre="${g}"><span class="led"></span><span class="swatch" style="--sw:${genreColor(g, k)}"></span><em></em><span class="count"></span></button>`).join("");
+    // Two rows: the playlists, then the new (timeslot) styles in the order they play through the day, led by auto.
+    const key = (g) => `<button class="key gkey" data-genre="${g}"><span class="led"></span><span class="swatch" style="--sw:${genreColor(g, keys.indexOf(g))}"></span><em></em><span class="count"></span></button>`;
+    const playlists = keys.filter((g) => !s.genres[g].new);
+    const styles = keys.filter((g) => s.genres[g].new).sort((a, b) => s.genres[a].order - s.genres[b].order);
+    wrap.innerHTML =
+      `<div class="gsub"><span class="gsub-label">playlists</span><div class="gsub-keys">${playlists.map(key).join("")}</div></div>` +
+      (styles.length ? `<div class="gsub"><span class="gsub-label">new music · by time of day</span><div class="gsub-keys">` +
+        `<button class="key dark gkey" data-moods title="mix in the styles for the time of day and weather"><span class="led"></span><em>auto</em><span class="count">by time</span></button>` +
+        styles.map(key).join("") + `</div></div>` : "");
     $$("[data-genre]", wrap).forEach((b) => b.addEventListener("click", () => toggleGenre(b.dataset.genre)));
-    $("[data-moods]", wrap).addEventListener("click", () => setInputs({ moods: S.inputs.moods === false }, 0));
+    $("[data-moods]", wrap)?.addEventListener("click", () => setInputs({ moods: S.inputs.moods === false }, 0));
     const sel = $("#add-genre");
     sel.innerHTML = keys.map((g) => `<option value="${g}">${esc(s.genres[g].label.toLowerCase())}</option>`).join("");
   }
@@ -707,7 +718,8 @@ function renderGenreKeys(s) {
     $(".count", b).textContent = `${g.cached}/${g.tracks}`;
     $(".led", b).classList.toggle("on", s.inputs.genres.includes(b.dataset.genre));
   });
-  $(".led", $("[data-moods]", wrap)).classList.toggle("on", s.inputs.moods !== false);
+  const moods = $("[data-moods]", wrap);
+  if (moods) $(".led", moods).classList.toggle("on", s.inputs.moods !== false);
 }
 
 const pendingOffset = {};  // ip -> offset set on the fader but not yet confirmed by the server

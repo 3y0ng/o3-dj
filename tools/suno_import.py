@@ -4,12 +4,12 @@
     python3 tools/suno_import.py add ~/Downloads/O3*.mp3
     python3 tools/suno_import.py add --style dark_academia ~/Downloads/rain.mp3   # if the title doesn't say
 
-    # 2. pack every Suno song (with its metadata) into one file, and copy it to the DJ device
-    python3 tools/suno_import.py export o3-music.zip
+    # 2. pack every Suno song (with its metadata) into one file: ~/Downloads/o3-music-<date>.zip
+    python3 tools/suno_import.py export
+    #    AirDrop / USB / Drive it into the DJ device's Downloads folder
 
-    # 3. on the DJ device, from the o3-dj folder
-    python3 tools/suno_import.py unpack o3-music.zip
-    ./dj.sh restart          # or wait ~10 min for the library rescan
+    # 3. on the DJ device, from the o3-dj folder: pull the latest code, unpack the newest zip, restart
+    ./dj.sh update
 
 Titles: name each song "O3 <style label> <bpm>", e.g. "O3 Bossa Nova 128". `add` finds the style from the label
 (suno/styles.json) and the BPM from the number. Without them use --style / --bpm (the BPM defaults to the middle of
@@ -154,6 +154,11 @@ def unpack(zip_path, library, log=print):
     return added
 
 
+def newest_zip(folder):
+    zips = sorted(folder.glob("o3-music*.zip"), key=lambda p: p.stat().st_mtime)
+    return zips[-1] if zips else None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -163,10 +168,10 @@ def main():
     a.add_argument("--bpm", type=int, help="tempo (default: from each file name)")
     a.add_argument("--plan", default="pro", help="Suno plan they were made on: pro | premier | free")
     a.add_argument("--no-level", action="store_true", help="don't level loudness")
-    e = sub.add_parser("export", help="pack all Suno songs into one zip")
-    e.add_argument("zip")
-    u = sub.add_parser("unpack", help="unpack a zip from export into this device's library")
-    u.add_argument("zip")
+    e = sub.add_parser("export", help="pack all Suno songs into one zip (default ~/Downloads/o3-music-<date>.zip)")
+    e.add_argument("zip", nargs="?")
+    u = sub.add_parser("unpack", help="unpack a zip from export into this device's library (default: newest in ~/Downloads)")
+    u.add_argument("zip", nargs="?")
     args = ap.parse_args()
 
     styles = json.loads(STYLES.read_text())
@@ -176,9 +181,15 @@ def main():
         saved = add(args.files, styles, library, cfg, args.style, args.bpm, args.plan, not args.no_level)
         print(f"\n{len(saved)} added. Next: python3 tools/suno_import.py export o3-music.zip")
     elif args.cmd == "export":
-        export(Path(args.zip), library)
+        z = Path(args.zip) if args.zip else Path.home() / "Downloads" / f"o3-music-{datetime.now():%Y-%m-%d}.zip"
+        export(z, library)
+        print(f"Copy {z.name} into the DJ device's Downloads folder (AirDrop, USB or Drive), then run ./dj.sh update there.")
     else:
-        unpack(Path(args.zip), library)
+        z = Path(args.zip) if args.zip else newest_zip(Path.home() / "Downloads")
+        if not z:
+            sys.exit("no o3-music*.zip in ~/Downloads; pass the zip's path")
+        print(f"unpacking {z}")
+        unpack(z, library)
 
 
 if __name__ == "__main__":
