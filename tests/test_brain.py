@@ -71,7 +71,7 @@ def test_quiet_afternoon_plays_5_quieter():
     def vol(hour, occ, known=True):
         return tgt(hour, occupancy=occ, occupancy_enabled=known)["volume"]
     assert vol(14, 40) == vol(14, 40, known=False) - 5  # afternoon under 60% full
-    assert vol(14, 59) == vol(14, 59, known=False) - 5
+    assert vol(14, 59) == vol(14, 59, known=False) - 5 + 1  # still gets the small busy bump above 50%
     assert vol(14, 70) >= vol(14, 70, known=False)  # 60%+ full: no cut
     assert vol(9, 40) == vol(9, 40, known=False)  # morning: no rule
     assert any("under 60% full" in r for r in tgt(14, occupancy=40, occupancy_enabled=True)["reasons"])
