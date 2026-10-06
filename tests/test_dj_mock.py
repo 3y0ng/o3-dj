@@ -61,7 +61,9 @@ def make_dj(tmp_path, player=None):
     d = dj_mod.DJ(CFG, player or MockPlayer(track_seconds=1000), FakeLibrary(), FakeCache(), FakeMeta(),
                   state_file=tmp_path / "state.json")
     d.fade_skips = False  # fades run in a thread with sleeps; tested separately
-    d.cfg = {**CFG, "skip_crossfade_seconds": 0}  # plain skips; the crossfade skip is tested separately
+    d.cfg = {**CFG, "skip_crossfade_seconds": 0,  # plain skips; the crossfade skip is tested separately
+             # no per-genre volume offsets, so volume checks don't depend on which genre the clock picks
+             "genres": {g: {k: v for k, v in c.items() if k != "volume_offset"} for g, c in CFG["genres"].items()}}
     return d
 
 

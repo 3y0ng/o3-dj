@@ -1128,11 +1128,25 @@ class DJ:
                              "summary": calibrate.describe(w["proposal"], self.cfg) if w["proposal"] else None}
         return out
 
+    def _genre_slot(self, g):
+        """For the controller: is this one of the timeslot (new music) genres, and when in the day does it first play."""
+        new = bool(self.cfg.get("genres", {}).get(g, {}).get("fallback"))
+        parts = [name for _, name in self.cfg.get("mood_hours", [])]
+        moods = self.cfg.get("moods", {})
+        best, order = 0.0, 99  # its main slot: where it has the biggest share of the mix
+        for i, part in enumerate(parts):
+            for j, w in enumerate(("clear", "cloudy", "rain")):
+                mix = moods.get(part, {}).get(w, {})
+                share = mix.get(g, 0) / (sum(mix.values()) or 1)
+                if share > best:
+                    best, order = share, i * 10 + j
+        return {"new": new, "order": round(order + (1 - best), 3)}  # the bigger share comes first within a slot
+
     def snapshot(self):
         with self.lock:
             lib = self.library.all()
             genres = self.library.genres()
-            per_genre = {g: {"label": label, "tracks": 0, "cached": 0} for g, label in genres.items()}
+            per_genre = {g: {"label": label, "tracks": 0, "cached": 0, **self._genre_slot(g)} for g, label in genres.items()}
             for t in lib:
                 pg = per_genre[t.genre]
                 pg["tracks"] += 1

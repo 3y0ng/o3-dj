@@ -148,6 +148,9 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [x] Dark Academia and Ambient Dream play 3 volume steps quieter (`volume_offset`); levelling had raised them +1.5 to +1.7 dB.
 - [x] At least two songs of a genre in a row (`min_genre_run`); skips crossfade by jumping to the song's last 8 s.
 - [x] Afternoons under 60% full play 5 volume steps quieter (`occupancy.volume_rules`).
+- [x] 6 Oct: 32 more Suno songs (4:00 each, A/B takes), 40 in all, 5 per style; `./dj.sh update` brings code + songs to the DJ device.
+  Genre keys: playlists row + new-music row in time-of-day order, two-line labels, a colour per style.
+- [ ] Next batch: vary Weirdness per generation (forgot on 6 Oct; that batch was all 65 / fantasy 55). 28 downloads left this month.
 - [ ] Check by ear on the speakers: the skip crossfade window (8 s might feel slow if the Sonos crossfade is shorter),
   and whether -3 is right for the quiet styles.
 - [ ] Smoother transitions (proposal): order songs so neighbours are close in BPM/energy (and key, once known); a real

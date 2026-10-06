@@ -84,7 +84,10 @@
         "distortion"
       ],
       "suno_settings": {
-        "weirdness": 55,
+        "weirdness": [
+          45,
+          65
+        ],
         "style_influence": 70,
         "variety": "High"
       }
@@ -119,7 +122,13 @@
         "https://www.youtube.com/watch?v=VMAPTo7RVCo",
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
-      "notes": "Tried 30 Sep: good, keep."
+      "notes": "Tried 30 Sep: good, keep.",
+      "suno_settings": {
+        "weirdness": [
+          35,
+          60
+        ]
+      }
     },
     "ambient_dream": {
       "label": "Ambient Dream",
@@ -135,7 +144,13 @@
         "https://www.youtube.com/watch?v=Kylm5L2mVzY",
         "https://www.youtube.com/watch?v=LIKhAQlCbfI"
       ],
-      "notes": "Tried 30 Sep: good, keep."
+      "notes": "Tried 30 Sep: good, keep.",
+      "suno_settings": {
+        "weirdness": [
+          35,
+          60
+        ]
+      }
     },
     "electronic_lofi": {
       "label": "Electronic Lofi",
@@ -233,5 +248,13 @@
     "aggressive",
     "loud drums"
   ],
-  "duration": "3:30-4:30"
+  "duration": "3:30-4:30",
+  "weirdness": {
+    "vary": true,
+    "default": [
+      50,
+      80
+    ],
+    "_about": "Change Weirdness on every generation, spread across the style's range, so takes differ. Below 50 is safer and more typical (suits calm styles, where surprises are jarring); above 50 adds variety and unusual instruments. Style Influence stays at the style's value."
+  }
 }
