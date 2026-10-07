@@ -31,7 +31,7 @@
   "source_weight": {},
   "vocals_penalty": 0.3,
 
-  "mood_hours": [[6, "morning"], [12, "afternoon"], [17, "evening"], [22, "after_hours"]],
+  "mood_hours": [[6, "morning"], [12, "afternoon"], [17, "early_evening"], [20, "evening"], [22, "after_hours"]],
   "moods": {
     "enabled": true,
     "morning": {
@@ -43,6 +43,11 @@
       "clear":  { "lofi_indie": 1.25, "electronic_lofi": 0.75, "whimsy_fantasy": 0.5 },
       "cloudy": { "whimsy_fantasy": 2.0, "lofi_indie": 1.0 },
       "rain":   { "whimsy_fantasy": 1.5, "jazzhop": 1.0, "dark_academia": 0.5 }
+    },
+    "early_evening": {
+      "clear":  { "lofi_indie": 2.0, "indie_lofi_fantasy": 0.5, "chill": 0.625 },
+      "cloudy": { "lofi_indie": 1.5, "indie_lofi_fantasy": 0.5, "dark_academia": 0.5, "chill": 0.625 },
+      "rain":   { "dark_academia": 1.5, "jazzhop": 1.0, "chill": 0.625 }
     },
     "evening": {
       "clear":  { "indie_lofi_fantasy": 2.0, "lofi_indie": 0.5, "chill": 0.625 },
