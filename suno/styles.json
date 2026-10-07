@@ -123,6 +123,7 @@
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
       "notes": "Tried 30 Sep: good, keep.",
+      "duration": "6:00",
       "suno_settings": {
         "weirdness": [
           35,
@@ -145,6 +146,7 @@
         "https://www.youtube.com/watch?v=LIKhAQlCbfI"
       ],
       "notes": "Tried 30 Sep: good, keep.",
+      "duration": "6:00",
       "suno_settings": {
         "weirdness": [
           35,
@@ -249,6 +251,7 @@
     "loud drums"
   ],
   "duration": "3:30-4:30",
+  "_duration": "Default song length; a style's own duration overrides it. Longer songs in calm styles (Dark Academia, Ambient Dream) get more music per download. Suno's Custom duration goes up to 6:00.",
   "weirdness": {
     "vary": true,
     "default": [
