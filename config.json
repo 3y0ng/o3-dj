@@ -27,7 +27,7 @@
   "min_tracks": 8,
   "min_genre_run": 2,
   "skip_crossfade_seconds": 8,
-  "new_music": { "start_share": 0.4, "full_share": 1.0, "full_at_tracks": 30 },
+  "new_music": { "start_share": 0.75, "full_share": 1.0, "full_at_tracks": 30 },
   "source_weight": {},
   "vocals_penalty": 0.3,
 
