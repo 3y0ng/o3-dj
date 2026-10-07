@@ -885,14 +885,12 @@ function renderRooms(s) {
 function renderStrip(s) {
   const up = $("#upnext");
   const items = s.upcoming.filter(Boolean);
-  const sig = JSON.stringify(items.map((t) => [t.id, t.up, t.down, t.energy]));
+  const sig = JSON.stringify(items.map((t) => [t.id, t.energy]));
   if (up.dataset.sig !== sig) {
     up.dataset.sig = sig;
     up.innerHTML = items.length ? items.map((t) => `<li>
         <div class="t">${esc(t.title)}<span class="m">${esc(t.genre_label.toLowerCase())} · ${t.bpm ? Math.round(t.bpm) + " bpm" : "bpm ?"} · nrg ${t.energy ?? "?"}${t.cached ? " · cached" : ""}</span></div>
-        <div class="votes"><button data-v="up" data-id="${esc(t.id)}" title="more like this">▲</button><button data-v="down" data-id="${esc(t.id)}" title="swap it out">▼</button></div>
       </li>`).join("") : `<li class="empty-note">the dj picks the next tracks once it's playing</li>`;
-    $$("[data-v]", up).forEach((b) => b.addEventListener("click", () => act("/api/control", { action: b.dataset.v, id: b.dataset.id })));
   }
   const log = $("#log");
   const lsig = JSON.stringify(s.events);
