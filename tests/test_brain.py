@@ -88,6 +88,7 @@ def test_moods_follow_time_and_weather():
         {"lofi_indie": 0.5, "electronic_lofi": 0.3, "whimsy_fantasy": 0.2}
     assert top(15, "cloudy") == "whimsy_fantasy"
     assert top(19, "rain") == "dark_academia"
+    assert top(18, "clear") == "lofi_indie" and top(21, "clear") == "indie_lofi_fantasy"  # Evening Lofi waits until 8pm
     assert top(23, "clear") == "ambient_dream" and top(3, "rain") == "ambient_dream"
     t = tgt(9)
     assert t["weights"]["chill"] > 0 and t["mood_daypart"] == "morning"
