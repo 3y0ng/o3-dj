@@ -204,3 +204,8 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [ ] **listen on iPhone still hard-cuts between songs**: iOS Safari ignores `audio.volume`, so the listen crossfade
   (two players, equal-power, `XFADE_S` in `web/app.js`) only works on desktop/Android. A Web Audio gain would fix it but
   suspends when the phone locks.
+- [x] **Restart crashed when the main room was offline** (6 Oct 2026, Office unplugged since 3 Oct): start-up asked the configured
+  main room for the venue and died. `SonosPlayer.discover` now leads from a room that's on the network (coordinator of the biggest group).
+- [ ] **Main room dropping out while running**: on 3 Oct Office went offline at 09:31 and the DJ couldn't control anything until
+  it was restarted with `--speaker` (volumes froze, staff switched to Spotify). Fail over to another room in the group after a few
+  failed ticks, the way start-up now does.
