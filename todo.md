@@ -209,3 +209,6 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [ ] **Main room dropping out while running**: on 3 Oct Office went offline at 09:31 and the DJ couldn't control anything until
   it was restarted with `--speaker` (volumes froze, staff switched to Spotify). Fail over to another room in the group after a few
   failed ticks, the way start-up now does.
+- [ ] **Songs cut short without a skip** (7 Oct 2026, 18:53: Window Seat stopped at 1:19 of 2:18 and jumped to the next song
+  without a crossfade; no DJ skip, the file was fine, the Mac wasn't busy). The DJ now logs "ended early ... not the DJ"
+  (`DJ._note_early_end`). If it keeps happening, look for a pattern (time, song, Sonos app use).
