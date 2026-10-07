@@ -83,6 +83,7 @@ class DJ:
         self.stopped_ticks = 0
         self.foreign_ticks = 0
         self.last_skip = 0.0
+        self.dj_moved = 0.0       # when the DJ itself last changed track (skip, jump, start), to tell its moves from others'
         self.last_daypart = None
         self.last_quiet = None   # inside quiet_hours at the last tick (None: not checked yet)
         self.status = {}
@@ -289,6 +290,7 @@ class DJ:
             raise RuntimeError("nothing playable for this scenario")
         self.uri_map.clear()
         self.id_uri.clear()
+        self.dj_moved = time.time()
         self.player.start([self.item_for(t) for t in picks])
         self.running, self.paused = True, False
         self._set_now(picks[0].id)
@@ -374,6 +376,7 @@ class DJ:
                 raise RuntimeError("Nothing playable - check the source or cache")
             self.uri_map.clear()
             self.id_uri.clear()
+            self.dj_moved = time.time()
             self.player.start([self.item_for(t) for t in picks])
             self.running, self.paused = True, False
             self._set_now(picks[0].id)
@@ -416,6 +419,7 @@ class DJ:
         """Skip. With crossfade on, jump to the last few seconds of the song so the speaker's own crossfade
         carries into the next one (Sonos only crossfades natural track changes). Otherwise, or if the song's
         length is unknown, a quick fade out/in so it isn't a hard cut into silence."""
+        self.dj_moved = time.time()
         window = self.cfg.get("skip_crossfade_seconds", 0)
         left = self.seconds_left()
         if self.cfg.get("crossfade") and window and left is not None and left > window + 2:
@@ -539,6 +543,7 @@ class DJ:
 
     def _jump_to_next_unplayed(self):
         """After a queue reset / failure, carry on with the first DJ track not yet played."""
+        self.dj_moved = time.time()
         uris = self.player.queue_uris()
         for tid in list(self.upcoming):
             uri = self.id_uri.get(tid)
@@ -900,6 +905,7 @@ class DJ:
             # normal advance (or a DJ track we lost track of during a transition: still new music)
             if cur in self.upcoming:
                 self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
+            self._note_early_end(self.now_id)
             self._set_now(cur)
             self._count_play()
             if cur in self.skip_on_start:
@@ -907,6 +913,7 @@ class DJ:
                 self.event(f"skipping downvoted {self.title(cur)}")
                 if not self.upcoming:
                     self._top_up(1)
+                self.dj_moved = time.time()
                 self.player.next()
                 return True
             return False
@@ -914,6 +921,21 @@ class DJ:
         self.event(f"queue jumped back to {self.title(cur)} - carrying on with new music")
         self._jump_to_next_unplayed()
         return True
+
+    EARLY_END_GRACE = 30  # seconds after the DJ's own skip/jump in which a track change is the DJ's doing
+
+    def _note_early_end(self, prev):
+        """Log a song that stopped well before its end when the DJ didn't move on itself: someone pressed next in
+        the Sonos app or on a speaker, or the speaker hiccupped (Sonos never crossfades those, so it sounds abrupt)."""
+        if not prev or time.time() - self.dj_moved < self.EARLY_END_GRACE:
+            return
+        dur = self.meta.duration(prev)
+        reached = self.now_max_elapsed
+        margin = max(20, self.cfg.get("skip_crossfade_seconds", 0) + 12)  # crossfade + 2 s polling
+        if dur and reached >= 3 and reached + margin < dur:
+            fmt = lambda x: f"{int(x) // 60}:{int(x) % 60:02d}"
+            self.event(f"{self.title(prev)} ended early at {fmt(reached)} of {fmt(dur)} - not the DJ "
+                       f"(Sonos app, a speaker button or a playback hiccup)")
 
     def _on_stopped(self, st, cur):
         left = self.seconds_left(st) if cur == self.now_id else None

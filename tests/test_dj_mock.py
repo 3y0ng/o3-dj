@@ -674,3 +674,21 @@ def test_one_vote_per_song_per_play(dj):
     assert dj.votes[nxt]["up"] == 1
     dj.vote("up", now)                 # the first song has played out: a new play takes a new vote
     assert dj.votes[now]["up"] == 2
+
+
+def test_song_ending_early_outside_the_dj_is_logged(dj, monkeypatch):
+    started(dj, duration=200)
+    first = dj.now_id
+    real = time.time
+    monkeypatch.setattr(dj_mod.time, "time", lambda: real() + 60)  # well past the DJ's own start
+    at_elapsed(dj, 79); dj.tick(1)
+    dj.player.next()                    # someone pressed next in the Sonos app
+    dj.tick(2)
+    assert any("ended early at 1:19 of 3:20" in e["msg"] and dj.title(first) in e["msg"] for e in dj.events)
+
+
+def test_the_djs_own_skip_is_not_logged_as_early(dj):
+    started(dj, duration=200)
+    at_elapsed(dj, 79); dj.tick(1)
+    dj.skip(); dj.tick(2); dj.tick(3)
+    assert not any("ended early" in e["msg"] for e in dj.events)
