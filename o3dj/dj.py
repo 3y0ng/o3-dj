@@ -77,6 +77,7 @@ class DJ:
         self.uri_map = {}        # uri -> track id
         self.id_uri = {}         # track id -> uri it was queued with
         self.skip_on_start = set()  # downvoted too late to swap out
+        self.play_votes = set()     # songs voted on during their current (or upcoming) play
         self.failures = {}       # track id -> (count, last time)
         self.dirty_at = None     # atmosphere changed; re-pick upcoming soon
         self.stopped_ticks = 0
@@ -456,8 +457,15 @@ class DJ:
             tid = tid or self.now_id
             if not tid:
                 return
+            # One vote per song per play, from anyone: a song that has left the queue (played out, or swapped
+            # out) can be voted on again next time it comes round.
+            self.play_votes &= set(self.queued_ids())
+            if tid in self.play_votes:
+                self.event(f"already voted on {self.title(tid)} this play")
+                return
             if direction == "down" and tid == self.now_id and self.running and self._cooldown():
                 return
+            self.play_votes.add(tid)
             self._vote(tid, direction)
             name = self.title(tid)
             if direction != "down":

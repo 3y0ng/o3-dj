@@ -656,3 +656,21 @@ def test_eq_first_run_keeps_the_speakers_current_tone(tmp_path):
     assert d.eq["bass"] == 2 and d.eq["treble"] == 1 and "adopt" not in d.eq
     assert d.eq["rooms"] == {"Mock Mezzanine": {"bass": -3, "treble": 0}}
     assert player.eq(mezz)["bass"] == -1 and player.eq(player.anchor_ip)["bass"] == 2  # nothing changed
+
+
+def test_one_vote_per_song_per_play(dj):
+    started(dj)
+    now, nxt = dj.now_id, dj.upcoming[0]
+    for _ in range(3):  # repeated taps (or several people) during one play count once
+        dj.vote("up")
+    assert dj.votes[now]["up"] == 1
+    dj.vote("down")                    # changing your mind mid-play doesn't count either
+    assert dj.votes[now].get("down", 0) == 0
+    dj.vote("up", nxt); dj.vote("up", nxt)  # "up next" too
+    assert dj.votes[nxt]["up"] == 1
+    dj.skip(); dj.tick(1)              # next play of the song after: it can be voted on again later
+    assert dj.now_id == nxt
+    dj.vote("up")                      # nxt's vote was for this same play
+    assert dj.votes[nxt]["up"] == 1
+    dj.vote("up", now)                 # the first song has played out: a new play takes a new vote
+    assert dj.votes[now]["up"] == 2
