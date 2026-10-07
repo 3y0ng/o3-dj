@@ -107,7 +107,8 @@
         "https://www.youtube.com/watch?v=EHtKBxV6JKE",
         "https://www.youtube.com/watch?v=GT_J6k5Dyqg"
       ],
-      "notes": "Tried 30 Sep: good, keep."
+      "notes": "Tried 30 Sep: good, keep.",
+      "duration": "5:00-6:00"
     },
     "dark_academia": {
       "label": "Dark Academia",
@@ -124,7 +125,6 @@
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
       "notes": "Tried 30 Sep: good, keep.",
-      "duration": "5:00-6:00",
       "duration": "6:00",
       "suno_settings": {
         "weirdness": [
