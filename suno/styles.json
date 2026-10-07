@@ -62,6 +62,7 @@
         "https://www.youtube.com/watch?v=_QqabGYTSpQ"
       ],
       "notes": "Tried 5 Oct: whimsy and bright celtic-orchestral prompts missed (too bright, not mellow). Inspired by the Frieren soundtrack: cello, harp, fantasy folk instruments, nostalgic. Variants D (celtic) and F (elven folk, dulcimer) approved; flute is fine here. Made with Weirdness 55 / Style Influence 70 / Variety High.",
+      "duration": "5:00-6:00",
       "prompts": [
         "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe",
         "gentle elven folk lament, harp, cello, hammered dulcimer, misty and bittersweet, cosy cafe"
@@ -106,7 +107,8 @@
         "https://www.youtube.com/watch?v=EHtKBxV6JKE",
         "https://www.youtube.com/watch?v=GT_J6k5Dyqg"
       ],
-      "notes": "Tried 30 Sep: good, keep."
+      "notes": "Tried 30 Sep: good, keep.",
+      "duration": "5:00-6:00"
     },
     "dark_academia": {
       "label": "Dark Academia",
@@ -123,6 +125,7 @@
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
       "notes": "Tried 30 Sep: good, keep.",
+      "duration": "6:00",
       "suno_settings": {
         "weirdness": [
           35,
@@ -145,6 +148,7 @@
         "https://www.youtube.com/watch?v=LIKhAQlCbfI"
       ],
       "notes": "Tried 30 Sep: good, keep.",
+      "duration": "6:00",
       "suno_settings": {
         "weirdness": [
           35,
@@ -249,6 +253,7 @@
     "loud drums"
   ],
   "duration": "3:30-4:30",
+  "_duration": "Default song length; a style's own duration overrides it. Longer songs in calm styles (Dark Academia, Ambient Dream, Whimsy Fantasy, Evening Lofi) get more music per download. Suno's Custom duration goes up to 6:00.",
   "weirdness": {
     "vary": true,
     "default": [
