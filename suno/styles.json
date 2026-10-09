@@ -85,10 +85,6 @@
         "distortion"
       ],
       "suno_settings": {
-        "weirdness": [
-          45,
-          65
-        ],
         "style_influence": 70,
         "variety": "High"
       }
@@ -125,13 +121,7 @@
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
       "notes": "Tried 30 Sep: good, keep.",
-      "duration": "6:00",
-      "suno_settings": {
-        "weirdness": [
-          35,
-          60
-        ]
-      }
+      "duration": "6:00"
     },
     "ambient_dream": {
       "label": "Ambient Dream",
@@ -148,13 +138,7 @@
         "https://www.youtube.com/watch?v=LIKhAQlCbfI"
       ],
       "notes": "Tried 30 Sep: good, keep.",
-      "duration": "6:00",
-      "suno_settings": {
-        "weirdness": [
-          35,
-          60
-        ]
-      }
+      "duration": "6:00"
     },
     "electronic_lofi": {
       "label": "Electronic Lofi",
@@ -257,9 +241,9 @@
   "weirdness": {
     "vary": true,
     "default": [
-      50,
-      80
+      30,
+      65
     ],
-    "_about": "Change Weirdness on every generation, spread across the style's range, so takes differ. Below 50 is safer and more typical (suits calm styles, where surprises are jarring); above 50 adds variety and unusual instruments. Style Influence stays at the style's value."
+    "_about": "Change Weirdness on every generation, spread across 30-65 for every style, so takes differ. 50 is Suno's default; 0 is the most typical take of the prompt and 100 the most experimental. Tested 10 Oct on Electronic Lofi at 20 / 50 / 80: 80 was too much. Style Influence stays at the style's value."
   }
 }
