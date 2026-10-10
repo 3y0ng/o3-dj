@@ -35,6 +35,13 @@ class SonosPlayer:
     # -- discovery & grouping ------------------------------------------------
     def discover(self):
         found = self.soco.discover(timeout=8) or set()
+        if not found:
+            # Multicast discovery sometimes finds nothing on this Wi-Fi (it did on 10 Oct 2026): scan the network directly.
+            try:
+                found = self.soco.discovery.scan_network() or set()
+                log.warning("speaker discovery found nothing; a network scan found %d", len(found))
+            except Exception as e:
+                log.warning("speaker discovery found nothing and the network scan failed: %s", e)
         with self.lock:
             for z in found:
                 self.zones[z.ip_address] = z

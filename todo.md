@@ -212,3 +212,6 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [ ] **Songs cut short without a skip** (7 Oct 2026, 18:53: Window Seat stopped at 1:19 of 2:18 and jumped to the next song
   without a crossfade; no DJ skip, the file was fine, the Mac wasn't busy). The DJ now logs "ended early ... not the DJ"
   (`DJ._note_early_end`). If it keeps happening, look for a pattern (time, song, Sonos app use).
+- [x] **Restart crashed when discovery found no speakers** (10 Oct 2026): multicast discovery found nothing, the DJ fell back to
+  the configured (unplugged) Office and died asking it for the venue. Now: a direct network scan (`soco.discovery.scan_network`)
+  when discovery finds nothing, and the venue falls back to the public IP if the speaker won't answer.
