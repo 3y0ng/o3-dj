@@ -34,6 +34,12 @@ Below `min_tracks` (8) a new genre hands its share to its Chillify fallback genr
    already on the device are skipped, so the zip can always hold the whole Suno library.
 5. Two takes of one prompt are named "... A" and "... B" (e.g. `O3 Bossa Nova 120 A`). Vary Weirdness between generations
    (`weirdness` in suno/styles.json: 30-65 for every style).
+6. Check every generation before downloading it. Suno shows its own description under each song's title: it must name
+   the style (bossa nova, jazz-hop, lofi, deep house, celtic/harp/cello, piano, ambient). A "post-genre", "orchestral"
+   or "genre-blending" description means Suno got no style prompt; don't download it, remake it. On 10 Oct 2026 a script
+   typed the prompt into Suno's "Ask anything" box instead of the Styles box and 156 songs came out as random music.
+   When filling the form by script: use the textarea under the "Styles" heading, read the value back from that same box,
+   stop the run at the first off-style result, and count new songs with Suno's search per title (scrolling the list skips rows).
 
 - **Licence**: Suno songs may only be used commercially if they were made on a paid plan (Pro/Premier) at the time.
   `add --plan` defaults to pro; songs added with another plan get `"commercial": false` and the DJ skips them.
