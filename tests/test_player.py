@@ -43,3 +43,15 @@ def test_nothing_discovered_still_tries_the_configured_room(monkeypatch):
     p = SonosPlayer("1.136")
     p.discover()
     assert p.anchor_ip == "1.136" and direct == ["1.136"]
+
+
+def test_nothing_discovered_falls_back_to_a_network_scan(monkeypatch):
+    painting = FakeZone("Painting", "1.205")
+    painting.group = FakeGroup([painting])
+    direct = []
+    mod = fake_soco([], direct)
+    mod.discovery = types.SimpleNamespace(scan_network=lambda **kw: {painting})
+    monkeypatch.setitem(sys.modules, "soco", mod)
+    p = SonosPlayer("1.136")  # Office: offline, and multicast discovery found nothing
+    assert p.discover() == 1
+    assert p.anchor_ip == "1.205" and not direct

@@ -40,7 +40,13 @@ def main():
         print(f"  found {player.discover()} room(s)")
 
     from o3dj import venue
-    code, how = venue.detect(cfg, household=None if args.mock else player.household())
+    household = None
+    if not args.mock:
+        try:
+            household = player.household()
+        except Exception as e:  # main speaker not answering: identify the venue another way rather than not starting
+            print(f"  couldn't ask the speakers which venue this is ({str(e)[:80]}); trying the public IP")
+    code, how = venue.detect(cfg, household=household)
     if code:
         venue.apply(cfg, code, how)
         print(f"  venue: {cfg['venues'][code]['name']} ({code}, from {how})")
