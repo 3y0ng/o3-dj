@@ -692,3 +692,16 @@ def test_the_djs_own_skip_is_not_logged_as_early(dj):
     at_elapsed(dj, 79); dj.tick(1)
     dj.skip(); dj.tick(2); dj.tick(3)
     assert not any("ended early" in e["msg"] for e in dj.events)
+
+
+def test_feedback_is_logged_with_context(dj):
+    started(dj)
+    e = dj.add_feedback(["too quiet", "not a tag"], " can't hear it by the window ", "sam")
+    assert e["tags"] == ["too quiet"] and e["note"] == "can't hear it by the window" and e["who"] == "sam"
+    assert e["song_id"] == dj.now_id and e["volume_target"] == dj.targets["volume"] and e["playing"]
+    dj.add_feedback(["bad song"])
+    rows = dj.feedback()
+    assert [r["tags"] for r in rows] == [["bad song"], ["too quiet"]]  # newest first, and kept on disk
+    assert dj.feedback_file.name == "feedback.jsonl" and len(dj.feedback_file.read_text().splitlines()) == 2
+    with pytest.raises(ValueError):
+        dj.add_feedback([], "  ")

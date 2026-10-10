@@ -12,6 +12,7 @@ Queue safety rules (learned the hard way on a real Sonos):
   - only count a play once the speaker reports it PLAYING.
 """
 
+import json
 import logging
 import socket
 import threading
@@ -57,6 +58,9 @@ class DJ:
         # per-venue calibration lives beside the state file (data/calibration.json, or mock_calibration.json)
         cal_name = state_file.name.replace("state", "calibration") if "state" in state_file.name else "calibration.json"
         self.calibration_store = JsonFile(state_file.with_name(cal_name), {})
+        # staff feedback: one JSON object per line, appended (data/feedback.jsonl, or mock_feedback.jsonl)
+        self.feedback_file = state_file.with_name(state_file.name.replace("state.json", "feedback.jsonl"))
+        self.feedback_lock = threading.Lock()
         saved = self.store.data.get("inputs") or {"genres": cfg["default_genres"]}
         self.inputs = brain.Inputs.from_dict(saved)
         self.votes = self.store.data.setdefault("votes", {})
@@ -1143,6 +1147,48 @@ class DJ:
                 "duration": f.get("duration"),
                 "up": v.get("up", 0), "down": v.get("down", 0), "plays": v.get("plays", 0),
                 "cached": self.cache.has(t), "gain_db": self.cache.gain(t)}
+
+    FEEDBACK_TAGS = ("too loud", "too quiet", "wrong style", "bad song", "too energetic", "too sleepy", "other")
+
+    def add_feedback(self, tags=(), note="", who=""):
+        """Log a staff note with what was happening at that moment, so it can be used to tune the DJ."""
+        tags = [t for t in (tags or []) if t in self.FEEDBACK_TAGS]
+        note, who = (note or "").strip()[:500], (who or "").strip()[:40]
+        if not tags and not note:
+            raise ValueError("pick a reason or write a note")
+        with self.lock:
+            i, t, st = self.effective_inputs(), self.targets, self.status or {}
+            vols = [v for v in (self.volumes or {}).values() if v is not None]
+            now = self.track_info(self.now_id) if self.now_id else None
+            entry = {
+                "at": datetime.now().isoformat(timespec="seconds"), "tags": tags, "note": note, "who": who,
+                "song": now and now["title"], "song_id": self.now_id, "style": now and now["genre_label"],
+                "song_energy": now and now["energy"], "song_bpm": now and now["bpm"],
+                "volume_target": t.get("volume"), "volume_speakers": round(sum(vols) / len(vols)) if vols else None,
+                "auto_vol": i.auto, "energy_target": t.get("energy"), "daypart": t.get("daypart"),
+                "occupancy": i.occupancy if i.occupancy_enabled else None, "weather": i.weather, "mode": self.mode,
+                "playing": self.running and not self.paused and st.get("state") == "PLAYING",
+            }
+        with self.feedback_lock:
+            self.feedback_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.feedback_file, "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self.event("feedback: " + ", ".join(tags + ([note[:40]] if note else [])))
+        return entry
+
+    def feedback(self, limit=None):
+        """Logged feedback, newest first."""
+        with self.feedback_lock:
+            if not self.feedback_file.exists():
+                return []
+            rows = []
+            for line in self.feedback_file.read_text().splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        rows.reverse()
+        return rows[:limit] if limit else rows
 
     def _played(self, n=15):
         """The last songs played, newest first, for the controller's play history."""

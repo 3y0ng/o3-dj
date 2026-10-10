@@ -43,6 +43,33 @@ def create_app(dj):
     def state():
         return ok()
 
+    @app.post("/api/feedback")
+    def add_feedback():
+        body = request.get_json(force=True)
+        try:
+            entry = dj.add_feedback(body.get("tags"), body.get("note"), body.get("who"))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        return jsonify({"ok": True, "entry": entry, "recent": dj.feedback(20)})
+
+    @app.get("/api/feedback")
+    def list_feedback():
+        return jsonify({"tags": dj.FEEDBACK_TAGS, "recent": dj.feedback(int(request.args.get("limit", 20)))})
+
+    @app.get("/api/feedback.csv")
+    def feedback_csv():
+        import csv
+        import io
+        cols = ["at", "tags", "note", "who", "song", "style", "volume_target", "volume_speakers", "auto_vol",
+                "occupancy", "weather", "daypart", "energy_target", "song_energy", "song_bpm", "mode", "playing", "song_id"]
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(cols)
+        for r in reversed(dj.feedback()):  # oldest first, like a log
+            w.writerow(["; ".join(r.get(c) or []) if c == "tags" else r.get(c) for c in cols])
+        return Response(buf.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=o3-dj-feedback.csv"})
+
     @app.post("/api/control")
     def control():
         body = request.get_json(force=True)
