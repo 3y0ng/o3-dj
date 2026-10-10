@@ -433,6 +433,7 @@ function initKeys() {
   $("#k-scan").addEventListener("click", () => act("/api/speakers", { action: "discover" }));
   $("#k-eq").addEventListener("click", () => (eqMode.on ? exitEq() : enterEq()));
 
+  initFeedback();
   const addDialog = $("#add-dialog");
   $("#k-add").addEventListener("click", () => { $("#add-msg").textContent = ""; addDialog.showModal(); addDialog.querySelector("input").focus(); });
   $("#add-close").addEventListener("click", () => addDialog.close());
@@ -451,6 +452,57 @@ function initKeys() {
     } catch (err) {
       msg.textContent = err.message;
     }
+  });
+}
+
+// ── staff feedback ─────────────────────────────────────────────────
+const FB_WHO = "o3dj.feedback.who";
+function fbRecentHTML(rows) {
+  return rows.length ? rows.map((r) => {
+    const when = new Date(r.at), today = when.toDateString() === new Date().toDateString();
+    const t = (today ? "" : when.toLocaleDateString(undefined, { weekday: "short" }) + " ") + r.at.slice(11, 16);
+    const ctx = [r.song, r.volume_target != null ? "vol " + r.volume_target : "", r.occupancy != null ? r.occupancy + "% full" : ""].filter(Boolean).join(" · ");
+    return `<li><b>${esc(t)}</b>${esc([r.tags.join(", "), r.note].filter(Boolean).join(" — "))}${r.who ? ` <span class="c-dim">(${esc(r.who)})</span>` : ""}<span class="m">${esc(ctx)}</span></li>`;
+  }).join("") : `<li class="empty-note">no feedback yet</li>`;
+}
+function initFeedback() {
+  const dlg = $("#fb-dialog"), form = $("#fb-form"), msg = $("#fb-msg");
+  const picked = new Set();
+  const load = async () => {
+    try {
+      const d = await api("/api/feedback?limit=20");
+      $("#fb-tags").innerHTML = d.tags.map((t) => `<button type="button" class="fb-tag" data-tag="${esc(t)}">${esc(t)}</button>`).join("");
+      $$(".fb-tag", dlg).forEach((b) => b.addEventListener("click", () => {
+        picked.has(b.dataset.tag) ? picked.delete(b.dataset.tag) : picked.add(b.dataset.tag);
+        b.classList.toggle("on", picked.has(b.dataset.tag));
+      }));
+      $("#fb-recent").innerHTML = fbRecentHTML(d.recent);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  $("#k-feedback").addEventListener("click", () => {
+    picked.clear(); form.reset(); msg.textContent = "";
+    try { form.who.value = localStorage.getItem(FB_WHO) || ""; } catch (e) { /* storage blocked */ }
+    const n = S && S.now, vols = Object.values((S && S.volumes) || {});
+    $("#fb-now").textContent = S ? `now: ${n ? n.title : "nothing playing"} · vol ${vols.length ? Math.round(avg(vols)) : S.targets.volume}` +
+      (S.inputs.occupancy_enabled ? ` · ${S.inputs.occupancy}% full` : "") + ` · ${fmtHour(S.targets.hour)}` : "";
+    load();
+    dlg.showModal();
+  });
+  $("#fb-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => {
+    const r = dlg.getBoundingClientRect();
+    if (e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) dlg.close();
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { localStorage.setItem(FB_WHO, form.who.value.trim()); } catch (err) { /* storage blocked */ }
+    try {
+      const d = await api("/api/feedback", { tags: [...picked], note: form.note.value, who: form.who.value });
+      $("#fb-recent").innerHTML = fbRecentHTML(d.recent);
+      msg.textContent = "saved ✓ thanks";
+      picked.clear(); $$(".fb-tag", dlg).forEach((b) => b.classList.remove("on")); form.note.value = "";
+      setTimeout(() => dlg.close(), 1200);
+    } catch (err) { msg.textContent = err.message; }
   });
 }
 

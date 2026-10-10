@@ -62,6 +62,8 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   default weather/occupancy numbers; `calibrate.defaults(cfg)` reproduces uncalibrated behaviour exactly (tested).
 - `o3dj/server.py`: JSON API, `/ui/*` static files, `/media/*` (speakers stream cached files from this laptop over the LAN).
 - `data/` (gitignored): `state.json` (inputs, votes, history, running), `track_meta.json`, `cache/`, catalogue snapshot.
+  `feedback.jsonl`: staff feedback (`DJ.add_feedback`), one JSON object per line with the context at that moment. Read it
+  when tuning volume/energy/styles: it is the record of what sounded wrong, and when.
 
 ## Sonos gotchas (learned live; don't regress)
 
