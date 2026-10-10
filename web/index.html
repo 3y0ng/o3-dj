@@ -181,6 +181,7 @@
       <div class="rooms-head">
         <h3>rooms</h3>
         <button class="mini" id="k-eq" title="tone: bass and treble for all rooms, or tap a room to tune just that one"><span class="led"></span>eq</button>
+        <button class="mini" id="k-add" title="add a song from a stream URL">add track</button>
         <button class="mini" id="k-party" title="join every speaker into one synced group">party mode</button>
         <button class="mini" id="k-scan" title="look for speakers again">scan</button>
       </div>
@@ -199,16 +200,22 @@
       <ul id="log"></ul>
     </div>
     <div class="tape-card">
-      <h4>add a track</h4>
-      <form id="add-form">
-        <input name="url" type="url" placeholder="https://… .mp3 stream url" required>
-        <input name="title" placeholder="title (optional)">
-        <div class="row"><select name="genre" id="add-genre"></select><button class="mini" type="submit">add</button></div>
-        <p class="hint">or drop files into <code>library/&lt;genre&gt;/</code></p>
-        <p class="hint err" id="add-msg"></p>
-      </form>
+      <h4>played</h4>
+      <ol id="played"></ol>
     </div>
   </section>
+
+  <!-- add a track: opened from the "add track" key next to eq -->
+  <dialog class="tape-card add-dialog" id="add-dialog" aria-labelledby="add-title">
+    <div class="add-head"><h4 id="add-title">add a track</h4><button class="add-close" id="add-close" aria-label="close">×</button></div>
+    <form id="add-form">
+      <input name="url" type="url" placeholder="https://… .mp3 stream url" required>
+      <input name="title" placeholder="title (optional)">
+      <div class="row"><select name="genre" id="add-genre"></select><button class="mini" type="submit">add</button></div>
+      <p class="hint">or drop files into <code>library/&lt;genre&gt;/</code></p>
+      <p class="hint err" id="add-msg"></p>
+    </form>
+  </dialog>
 
   <p class="foot" id="foot">connecting…</p>
 </main>

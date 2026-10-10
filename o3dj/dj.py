@@ -1144,6 +1144,20 @@ class DJ:
                 "up": v.get("up", 0), "down": v.get("down", 0), "plays": v.get("plays", 0),
                 "cached": self.cache.has(t), "gain_db": self.cache.gain(t)}
 
+    def _played(self, n=15):
+        """The last songs played, newest first, for the controller's play history."""
+        out = []
+        for h in list(self.history)[-n:][::-1]:
+            t = self.library.get(h["id"])
+            v = self.votes.get(h["id"], {})
+            when = datetime.fromtimestamp(h["at"])
+            at = when.strftime("%H:%M" if when.date() == datetime.now().date() else "%a %H:%M")
+            out.append({"id": h["id"], "at": at,
+                        "title": t.title if t else h["id"].rsplit("/", 1)[-1],
+                        "genre_label": self.library.genres().get(t.genre, t.genre) if t else "",
+                        "up": v.get("up", 0), "down": v.get("down", 0)})
+        return out
+
     def _calibration_snapshot(self):
         saved = self.calibration
         out = {"venue": self.live.cfg.get("venue_name") or self.live.cfg.get("venue"),
@@ -1218,6 +1232,7 @@ class DJ:
                 "cache": {"files": len(self.cache.names), "mb": round(self.cache.usage_mb()),
                           "analysed": self.meta.count(), "tracks": len(lib)},
                 "events": list(self.events),
+                "played": self._played(),
                 "calibration": self._calibration_snapshot(),
                 "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"],
                            "room_offset_steps": self.room_offset_steps()},
