@@ -44,6 +44,7 @@ Fader trims (volume/energy) reset automatically when the real clock moves into t
 | **room fader** (on each room) | that room's volume relative to the main volume, in five printed detents (−10, −5, 0, +5, +10; `room_offset_steps` in `config.json`). Drag, scroll or arrow keys; double-click resets. Saved per room; starts from `room_volume_offsets`. |
 | **mute** (slide switch, on each room) | mutes that room on the Sonos. It stays in the group, so unmuting is instant; a mute set in the Sonos app shows here too. |
 | **eq** (next to party mode) | tone. Press it and the blue and green faders become **bass** and **treble** (−10 to +10, the speakers' own Sonos EQ) for all rooms, and the screen shows the tone curve. Tap a room's name plate to tune just that room on top (tap again for all rooms); each room's LCD shows its tone meanwhile. Press eq again, or leave it for 10 s, to go back. Double-click a fader resets it to flat. The LED is on when the tone isn't flat. The DJ keeps rooms in its group at this tone (putting it back within a minute if it's changed in the Sonos app); Sonos loudness stays on. On its first run it starts from whatever the speakers were already set to. |
+| **add track** (next to eq) | opens a small form to add a song from a stream URL (or drop files into `library/<genre>/`). |
 
 Song names too long for the screen scroll across it, pausing at the start of each pass.
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.

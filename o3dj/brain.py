@@ -84,6 +84,17 @@ def new_music_share(cfg, mood, counts=None):
     return start + (full - start) * fill
 
 
+def volume_floor(cfg, occupancy):
+    """The minimum auto volume for how full the room is, or None below the first point."""
+    pts = sorted(cfg.get("occupancy", {}).get("volume_floor", []))
+    if not pts or occupancy < pts[0][0]:
+        return None
+    for (o0, v0), (o1, v1) in zip(pts, pts[1:]):
+        if occupancy <= o1:
+            return v0 + (v1 - v0) * (occupancy - o0) / (o1 - o0)
+    return pts[-1][1]
+
+
 def occupancy_band(cfg, occupancy):
     """The occupancy band the room is in: {lo, hi, energy, bpm, instrumental, label}, or None."""
     for lo, hi, energy, bpm, instrumental, *label in cfg.get("occupancy", {}).get("bands", []):
@@ -172,6 +183,13 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
             if mood_daypart(cfg, hour) == rule.get("part") and inputs.occupancy < rule.get("below", 0):
                 volume += rule["volume"]
                 reasons.append(f"{rule['part'].replace('_', ' ')} under {rule['below']}% full -> vol {rule['volume']:+d}")
+
+    # A busy room needs a minimum level to sit above the chatter, whatever the time of day: occupancy.volume_floor
+    # [[percent_full, volume], ...], interpolated between points and flat after the last (none below the first).
+    floor = volume_floor(cfg, inputs.occupancy) if inputs.occupancy_enabled else None
+    if floor is not None and volume < floor:
+        reasons.append(f"{inputs.occupancy}% full -> at least vol {floor:.0f}")
+        volume = floor
 
     # Energy and tempo meet the room's need: lift an empty cafe, calm a packed one.
     bpm_shift, instrumental = 0, False

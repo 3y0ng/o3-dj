@@ -433,6 +433,13 @@ function initKeys() {
   $("#k-scan").addEventListener("click", () => act("/api/speakers", { action: "discover" }));
   $("#k-eq").addEventListener("click", () => (eqMode.on ? exitEq() : enterEq()));
 
+  const addDialog = $("#add-dialog");
+  $("#k-add").addEventListener("click", () => { $("#add-msg").textContent = ""; addDialog.showModal(); addDialog.querySelector("input").focus(); });
+  $("#add-close").addEventListener("click", () => addDialog.close());
+  addDialog.addEventListener("click", (e) => {  // a click on the backdrop, outside the card
+    const r = addDialog.getBoundingClientRect();
+    if (e.target === addDialog && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) addDialog.close();
+  });
   $("#add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target, msg = $("#add-msg");
@@ -440,6 +447,7 @@ function initKeys() {
       render(await api("/api/tracks", { url: f.url.value, title: f.title.value, genre: f.genre.value }));
       msg.textContent = "added ✓";
       f.url.value = f.title.value = "";
+      setTimeout(() => addDialog.close(), 900);
     } catch (err) {
       msg.textContent = err.message;
     }
@@ -891,6 +899,14 @@ function renderStrip(s) {
     up.innerHTML = items.length ? items.map((t) => `<li>
         <div class="t">${esc(t.title)}<span class="m">${esc(t.genre_label.toLowerCase())} · ${t.bpm ? Math.round(t.bpm) + " bpm" : "bpm ?"} · nrg ${t.energy ?? "?"}${t.cached ? " · cached" : ""}</span></div>
       </li>`).join("") : `<li class="empty-note">the dj picks the next tracks once it's playing</li>`;
+  }
+  const played = $("#played");
+  const psig = JSON.stringify(s.played || []);
+  if (played && played.dataset.sig !== psig) {
+    played.dataset.sig = psig;
+    played.innerHTML = (s.played || []).length ? s.played.map((p, k) => `<li class="${k === 0 && s.now && p.id === s.now.id ? "now" : ""}">
+        <b>${esc(p.at)}</b><div class="t">${esc(p.title)}<span class="m">${esc((p.genre_label || "").toLowerCase())}${p.up || p.down ? ` · ▲${p.up} ▼${p.down}` : ""}${k === 0 && s.now && p.id === s.now.id ? " · playing" : ""}</span></div>
+      </li>`).join("") : `<li class="empty-note">nothing played yet</li>`;
   }
   const log = $("#log");
   const lsig = JSON.stringify(s.events);

@@ -22,7 +22,7 @@ def test_evening_is_slower_and_quieter_than_afternoon():
 
 def test_volume_schedule_steps():
     """Newtown's schedule (Sep 2026): base volume by time of day, before busy/empty/rain nudges."""
-    expect = {23.5: 35, 1: 35, 3: 20, 6: 20, 8: 35, 9.99: 35, 11: 50, 12.5: 60, 18.9: 60, 19.5: 50, 20.5: 38, 22.9: 38}
+    expect = {23.5: 35, 1: 35, 3: 20, 6: 20, 8: 35, 9.99: 35, 11: 50, 12.5: 60, 18.9: 60, 19.5: 50, 20.5: 50, 21.5: 38, 22.9: 38}
     for hour, vol in expect.items():
         assert tgt(hour)["volume"] == vol, hour
     assert tgt(9.9)["energy"] < tgt(10.1)["energy"] + 0.01  # energy stays smooth across the volume steps
@@ -221,3 +221,16 @@ def test_suno_tracks_preferred_within_a_genre():
     rng = random.Random(4)
     ps = [brain.pick(by, t, lambda _: None, {}, set(), lambda _: True, rng) for _ in range(600)]
     assert sum(p.source == "suno" for p in ps) / len(ps) > 0.65
+
+
+def test_busy_room_has_a_volume_floor():
+    cfg = {**CFG, "max_volume": 75}
+    def vol(hour, occ):
+        return brain.targets(brain.Inputs(occupancy=occ, occupancy_enabled=True), cfg, hour, GENRES)["volume"]
+    pts = dict(CFG["occupancy"]["volume_floor"])
+    assert vol(21.5, 40) == 38                       # under the first point: the schedule
+    assert vol(21.5, 70) >= pts[70] and vol(21.5, 100) >= pts[100]
+    steps = [vol(21.5, o) for o in range(50, 101, 5)]
+    assert steps == sorted(steps) and max(b - a for a, b in zip(steps, steps[1:])) <= 8  # climbs, no cliff
+    assert vol(14, 75) >= vol(14, 40)                # a louder schedule still wins
+    assert brain.targets(brain.Inputs(occupancy=95), cfg, 21.5, GENRES)["volume"] == 38  # needs live occupancy
