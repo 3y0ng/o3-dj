@@ -47,6 +47,9 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   the Suno web app, titled "O3 <style label> <bpm>", then `tools/suno_import.py add|export|unpack` brings them into
   `library/` and moves them to the DJ device. Don't use the unofficial suno-api: it relies on a CAPTCHA-solving service.
   `tools/suno_generate.py` is kept for an official API. Only Pro/Premier-plan songs are licensed for the cafe.
+  When driving the Suno form (e.g. Claude in Chrome), fill the textarea under the "Styles" heading (a fresh tab also has an
+  "Ask anything" box that looks similar) and, after each Create, check Suno's description of both takes names the style;
+  stop at the first miss. See `library/README.md` step 6.
 - `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, levels them
   (loudness normalisation: `Cache.normalise` rewrites a cached file once; `data/normalised.json`), and analyses tempo.
   Never rewrite the playing file or the next one: Sonos pre-loads it and range-reads the file.
