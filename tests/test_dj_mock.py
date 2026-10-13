@@ -705,3 +705,32 @@ def test_feedback_is_logged_with_context(dj):
     assert dj.feedback_file.name == "feedback.jsonl" and len(dj.feedback_file.read_text().splitlines()) == 2
     with pytest.raises(ValueError):
         dj.add_feedback([], "  ")
+
+
+# -- main room drops out mid-play -------------------------------------------------------
+
+def test_main_room_dropping_out_hands_over_and_keeps_playing(dj):
+    started(dj)
+    office, mezz, storage = dj.player.anchor_ip, ip_of(dj, "Mock Mezzanine"), ip_of(dj, "Mock 2nd Floor Storage Room")
+    dj.speaker_action("join", mezz); dj.speaker_action("join", storage)
+    dj.player.offline = {office}           # power cut / Wi-Fi drop on the main room
+    for n in range(dj.MAIN_FAILS_BEFORE_FAILOVER - 1):
+        dj.safe_tick(n)
+        assert dj.player.anchor_ip == office  # a blip or two isn't enough
+    dj.safe_tick(9)
+    assert dj.player.anchor_ip in (mezz, storage)
+    assert {s["ip"] for s in dj.speakers if s["in_group"]} == {mezz, storage}  # the rest of the group carries on
+    assert dj.running and dj.player.status()["state"] == "PLAYING"
+    assert any("stopped answering" in e["msg"] for e in dj.events)
+    assert dj.store.data["main_room"] == dj.player.anchor_ip   # a restart keeps the new main room
+
+
+def test_other_rooms_not_answering_doesnt_move_the_main_room(dj, monkeypatch):
+    started(dj)
+    office = dj.player.anchor_ip
+    def boom():
+        raise ConnectionError("HTTPConnectionPool(host='10.0.0.99', port=1400): Max retries exceeded")
+    monkeypatch.setattr(dj.player, "volumes", boom)  # a member, not the main room, is unreachable
+    for n in range(5):
+        dj.safe_tick(n)
+    assert dj.player.anchor_ip == office

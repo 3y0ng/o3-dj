@@ -87,6 +87,7 @@ class DJ:
         self.stopped_ticks = 0
         self.foreign_ticks = 0
         self.last_skip = 0.0
+        self.main_fails = 0       # ticks in a row the main room hasn't answered (see safe_tick)
         self.dj_moved = 0.0       # when the DJ itself last changed track (skip, jump, start), to tell its moves from others'
         self.last_daypart = None
         self.last_quiet = None   # inside quiet_hours at the last tick (None: not checked yet)
@@ -1099,18 +1100,59 @@ class DJ:
             log.exception("couldn't adopt existing queue")
         n = 0
         while True:
-            try:
-                self.tick(n)
-                self.player.error = None
-            except Exception as e:
-                msg = str(e)
-                if "Timeout" in msg or "Connection" in msg or "Max retries" in msg:
-                    msg = f"can't reach speakers at {self.player.anchor_ip} - is this computer on the Sonos Wi-Fi?"
-                self.player.error = msg[:160]
-                if n % 30 == 0:
-                    log.warning("tick failed: %s", e)
+            self.safe_tick(n)
             n += 1
             time.sleep(interval)
+
+    MAIN_FAILS_BEFORE_FAILOVER = 3  # ticks in a row the main room doesn't answer (each can take 10-20 s)
+
+    def safe_tick(self, n):
+        try:
+            self.tick(n)
+            self.player.error = None
+            self.main_fails = 0
+        except Exception as e:
+            msg = str(e)
+            anchor = self.player.anchor_ip
+            unreachable = "Timeout" in msg or "Connection" in msg or "Max retries" in msg
+            if unreachable:
+                msg = f"can't reach speakers at {anchor} - is this computer on the Sonos Wi-Fi?"
+            self.player.error = msg[:160]
+            if n % 30 == 0:
+                log.warning("tick failed: %s", e)
+            # The main room itself stopped answering (power cut, Wi-Fi drop): after a few tries, lead from another room.
+            self.main_fails = self.main_fails + 1 if unreachable and f"'{anchor}'" in str(e) else 0
+            if self.main_fails >= self.MAIN_FAILS_BEFORE_FAILOVER:
+                self.main_fails = 0
+                self._failover(anchor)
+
+    def _failover(self, old_ip):
+        """Switch to another room that's on the network and carry on playing (start-up does the same)."""
+        with self.lock:
+            old = next((s["name"] for s in self.speakers if s["ip"] == old_ip), old_ip)
+            was_in_group = [s["ip"] for s in self.speakers if s["in_group"] and s["ip"] != old_ip]
+            try:
+                new_ip = self.player.failover(old_ip, prefer=was_in_group)
+            except Exception as e:
+                log.warning("failover from %s failed: %s", old, e)
+                return False
+            if not new_ip:
+                self.event(f"main room {old} isn't answering and no other speaker was found")
+                return False
+            self._main_changed(new_ip)
+            self.speakers = self.player.speakers()
+            new = next((s["name"] for s in self.speakers if s["ip"] == new_ip), new_ip)
+            self.event(f"main room {old} stopped answering - {new} took over")
+            for ip in was_in_group:  # rooms that were playing with the DJ rejoin the new main room
+                if ip != new_ip and ip in {s["ip"] for s in self.speakers}:
+                    try:
+                        self.player.join(ip)
+                    except Exception as e:
+                        log.warning("couldn't rejoin %s: %s", ip, e)
+            self.speakers = self.player.speakers()
+            if self.running and not self.paused and not self.quiet_now():
+                self.start()  # the old main room held the queue: start afresh on the new one
+            return True
 
     def health_loop(self):
         was = self.online

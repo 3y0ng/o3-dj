@@ -61,6 +61,38 @@ class SonosPlayer:
                 self.anchor_ip = sorted(self.zones.values(), key=lambda z: z.player_name)[0].ip_address
         return len(self.zones)
 
+    def failover(self, old_ip, prefer=()):
+        """The main room stopped answering: lead from another room that's on the network. Prefers rooms that were
+        in the DJ's group (`prefer`), then the coordinator of the biggest group. Returns the new main room's IP or None."""
+        found = set(self.soco.discover(timeout=5) or set())
+        if not any(z.ip_address != old_ip for z in found):
+            try:
+                found |= set(self.soco.discovery.scan_network() or set())
+            except Exception as e:
+                log.warning("network scan failed: %s", e)
+        cands = [z for z in found if z.ip_address != old_ip]
+        if not cands:
+            return None
+
+        def size(z):
+            try:
+                return len(z.group.members)
+            except Exception:
+                return 0
+        best = max(cands, key=lambda z: (z.ip_address in prefer, size(z)))
+        with self.lock:
+            for z in found:
+                self.zones[z.ip_address] = z
+            self.zones.pop(old_ip, None)
+            self.anchor_ip = best.ip_address
+            try:  # still in a group led by the room that's gone: leave it, so it leads its own
+                if best.group.coordinator.ip_address != best.ip_address:
+                    best.unjoin()
+            except Exception:
+                pass
+        log.warning("main room %s stopped answering; %s (%s) takes over", old_ip, best.player_name, best.ip_address)
+        return best.ip_address
+
     def household(self):
         with self.lock:
             z = self.zones.get(self.anchor_ip) or self.soco.SoCo(self.anchor_ip)
@@ -321,6 +353,22 @@ class MockPlayer:
     def set_mute(self, ip, on):
         self.rooms[ip]["mute"] = bool(on)
 
+    offline = frozenset()  # rooms that stopped answering (tests): talking to the main room then fails
+
+    def _check(self):
+        if self.anchor_ip in self.offline:
+            raise ConnectionError(f"HTTPConnectionPool(host='{self.anchor_ip}', port=1400): Max retries exceeded")
+
+    def failover(self, old_ip, prefer=()):
+        online = [ip for ip in self.rooms if ip not in self.offline and ip != old_ip]
+        if not online:
+            return None
+        new = next((ip for ip in prefer if ip in online), online[0])
+        self.anchor_ip = new
+        self.group = {new}
+        self.queue, self.index, self.state = [], -1, "STOPPED"  # the old main room held the queue
+        return new
+
     def eq(self, ip):
         r = self.rooms[ip]
         return {"bass": r.get("bass", 0), "treble": r.get("treble", 0), "loudness": r.get("loudness", True)}
@@ -436,6 +484,7 @@ class MockPlayer:
                 self.play_index(self.index + 1)
 
     def status(self):
+        self._check()
         with self.lock:
             self._advance()
             cur = self.queue[self.index] if 0 <= self.index < len(self.queue) else {}

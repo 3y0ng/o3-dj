@@ -206,9 +206,10 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
   suspends when the phone locks.
 - [x] **Restart crashed when the main room was offline** (6 Oct 2026, Office unplugged since 3 Oct): start-up asked the configured
   main room for the venue and died. `SonosPlayer.discover` now leads from a room that's on the network (coordinator of the biggest group).
-- [ ] **Main room dropping out while running**: on 3 Oct Office went offline at 09:31 and the DJ couldn't control anything until
-  it was restarted with `--speaker` (volumes froze, staff switched to Spotify). Fail over to another room in the group after a few
-  failed ticks, the way start-up now does.
+- [x] **Main room dropping out while running** (14 Oct 2026: Storage dropped off at 02:25 and the music stayed off until
+  10:09). `DJ.safe_tick` now counts ticks where the main room itself doesn't answer; after 3 it calls `player.failover`
+  (another reachable room, preferring ones in the DJ's group, else the biggest group's coordinator), the rest of the group
+  rejoins, the new main room is saved, and playback starts afresh on it (outside quiet hours, unless paused).
 - [ ] **Songs cut short without a skip** (7 Oct 2026, 18:53: Window Seat stopped at 1:19 of 2:18 and jumped to the next song
   without a crossfade; no DJ skip, the file was fine, the Mac wasn't busy). The DJ now logs "ended early ... not the DJ"
   (`DJ._note_early_end`). If it keeps happening, look for a pattern (time, song, Sonos app use).
