@@ -738,6 +738,8 @@ class DJ:
         with self.lock:
             p = self.player
             rooms = {s["ip"]: s for s in p.speakers()}
+            if ip is not None and ip not in rooms and p.answers(ip):  # discovery missed it, but it's there
+                rooms = {s["ip"]: s for s in p.speakers()}
             if ip is not None and ip not in rooms:
                 raise ValueError("unknown speaker - press scan")
             if action == "party":

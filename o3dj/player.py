@@ -122,14 +122,29 @@ class SonosPlayer:
             ctrl = self.ctrl
             members = {m.ip_address for m in ctrl.group.members}
             out = []
-            for ip, z in sorted(self.zones.items(), key=lambda kv: kv[1].player_name):
+            for ip, z in list(self.zones.items()):
+                try:  # a room that has dropped off the Wi-Fi is left out, rather than failing the whole list
+                    name = z.player_name
+                except Exception:
+                    if ip in members or ip == ctrl.ip_address:
+                        raise
+                    continue
                 try:
                     muted = bool(z.mute)
                 except Exception:
                     muted = False
-                out.append({"ip": ip, "name": z.player_name, "in_group": ip in members,
+                out.append({"ip": ip, "name": name, "in_group": ip in members,
                             "coordinator": ip == ctrl.ip_address, "anchor": ip == self.anchor_ip, "muted": muted})
-            return out
+            return sorted(out, key=lambda r: r["name"])
+
+    def answers(self, ip):
+        """Is there a speaker at this address (e.g. one discovery missed)? Adds it to the known rooms if so."""
+        try:
+            z = self.zone(ip)
+            return bool(z.player_name)
+        except Exception:
+            self.zones.pop(ip, None)
+            return False
 
     def set_mute(self, ip, on):
         """Per-room mute: the room stays in the group, so unmuting is instant."""
@@ -376,6 +391,9 @@ class MockPlayer:
 
     def set_mute(self, ip, on):
         self.rooms[ip]["mute"] = bool(on)
+
+    def answers(self, ip):
+        return ip in self.rooms and ip not in self.offline
 
     offline = frozenset()  # rooms that stopped answering (tests): talking to the main room then fails
 
