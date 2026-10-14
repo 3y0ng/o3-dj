@@ -159,7 +159,7 @@ const FADERS = {
       }
       // Setting the volume by hand takes over from the schedule until auto vol is switched back on.
       setInputs({ auto: false, manual_volume: v });
-      popup("volume", v, "manual · auto vol off", "var(--blue)");
+      popup("volume", v, `held until the next time slot (max ${(S.limits && S.limits.manual_volume_max_hours) || 3} h)`, "var(--blue)");
     },
     reset() {
       if (calibrating()) { setInputs({ volume_trim: 0 }, 0); return popup("volume", "reset", "calibrating", "var(--blue)"); }

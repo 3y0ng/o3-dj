@@ -83,6 +83,8 @@
     [24, 0.18,  35, "after hours"]
   ],
   "reset_trims_on_daypart": true,
+  "manual_volume_max_hours": 3,
+  "auto_volume_other_sources": true,
   "quiet_hours": [[5, 7]],
 
   "weather": {

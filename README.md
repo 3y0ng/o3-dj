@@ -51,6 +51,8 @@ Song names too long for the screen scroll across it, pausing at the start of eac
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
 
+**Hand-set volume expires.** Moving the volume (or changing it in the Sonos app) holds that level until the next time slot or `manual_volume_max_hours` (3 h), whichever comes first, then auto volume takes over again. Auto volume also keeps the rooms at the scheduled level while another app (staff Spotify) is playing (`auto_volume_other_sources`); a change made in the Sonos app is held the same way.
+
 ## Calibrating a venue (once, about 5 minutes)
 
 It's one key, **calibrate** (next to the demo/live switch), and the screen shows everything else.

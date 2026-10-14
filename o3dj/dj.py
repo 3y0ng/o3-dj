@@ -88,6 +88,7 @@ class DJ:
         self.foreign_ticks = 0
         self.last_skip = 0.0
         self.main_fails = 0       # ticks in a row the main room hasn't answered (see safe_tick)
+        self.volume_set = {}      # ip -> the volume the DJ last set or saw, to notice changes made in the Sonos app
         self.dj_moved = 0.0       # when the DJ itself last changed track (skip, jump, start), to tell its moves from others'
         self.last_daypart = None
         self.last_quiet = None   # inside quiet_hours at the last tick (None: not checked yet)
@@ -625,7 +626,9 @@ class DJ:
                     changed.add("occupancy")
             if patch.get("auto") is True and not self.inputs.auto:
                 # auto volume back on: back to the schedule's level for this time (drop any old trim)
-                patch = {**patch, "volume_trim": 0}
+                patch = {**patch, "volume_trim": 0, "manual_since": None}
+            elif patch.get("auto") is False or ("manual_volume" in patch and not self.inputs.auto):
+                patch = {**patch, "manual_since": time.time()}  # a hand-set volume holds for a while, then expires
             for k, v in patch.items():
                 if k not in brain.Inputs.__dataclass_fields__:
                     continue
@@ -871,10 +874,23 @@ class DJ:
         t = self.library.get(self.now_id) if self.now_id else None
         return self.cfg.get("genres", {}).get(t.genre, {}).get("volume_offset", 0) if t else 0
 
-    def _apply_volume(self, max_step=2):
-        target = self.targets["volume"] + (self.genre_volume_offset() if self.inputs.auto else 0)
+    APP_CHANGE = 3  # a jump this big on the main room that the DJ didn't make = someone used the Sonos app
+
+    def _apply_volume(self, max_step=2, other_source=False):
         names = {s["ip"]: s["name"] for s in self.speakers}
         vols = self.player.volumes()
+        main = next((s["ip"] for s in self.speakers if s.get("coordinator")), None)
+        # Staff turned it up/down in the Sonos app: hold their level (like the controller's slider) instead of undoing it.
+        if max_step < 100 and not self.fading and main in vols and main in self.volume_set \
+                and abs(vols[main] - self.volume_set[main]) >= self.APP_CHANGE:
+            level = vols[main] - self.room_offset(names.get(main, ""))
+            self.inputs.auto, self.inputs.manual_volume, self.inputs.manual_since = False, int(level), time.time()
+            self.save()
+            self.targets = self.compute()
+            self.event(f"volume set to {vols[main]} in the Sonos app - holding it until the next time slot "
+                       f"(max {self.cfg.get('manual_volume_max_hours', 3):g} h)")
+        offset = self.genre_volume_offset() if self.inputs.auto and not other_source else 0
+        target = self.targets["volume"] + offset
         for ip, cur in vols.items():
             want = target + self.room_offset(names.get(ip, ""))
             want = max(self.cfg["min_volume"], min(self.cfg["max_volume"], want))
@@ -882,7 +898,28 @@ class DJ:
                 step = max(-max_step, min(max_step, want - cur))
                 self.player.set_volume(ip, cur + step)
                 vols[ip] = cur + step
+        self.volume_set = dict(vols)
         self.volumes = vols
+
+    def _check_manual_hold(self):
+        """A hand-set volume (controller slider or Sonos app) lasts until the next time slot or
+        manual_volume_max_hours, whichever comes first; then the schedule takes over again."""
+        i = self.inputs
+        if i.auto:
+            return
+        if not i.manual_since:  # set before holds expired (older state): start the clock now
+            i.manual_since = time.time()
+            self.save()
+            return
+        hours = self.cfg.get("manual_volume_max_hours", 3)
+        if time.time() - i.manual_since > hours * 3600:
+            self._back_to_auto(f"hand-set volume ended after {hours:g} h")
+
+    def _back_to_auto(self, why):
+        self.inputs.auto, self.inputs.volume_trim, self.inputs.manual_since = True, 0, None
+        self.save()
+        self.targets = self.compute()
+        self.event(f"{why} - volume back on the schedule")
 
     # -- following the speaker --------------------------------------------------------
     def refresh_status(self):
@@ -973,9 +1010,14 @@ class DJ:
             self._check_daypart()
             if self._check_quiet_hours(st):
                 return
+            self._check_manual_hold()
             self._follow_live()
             if not self.running:
-                if n % 5 == 0:
+                # Another app (staff Spotify) is playing: keep the room at the scheduled level anyway.
+                if self.cfg.get("auto_volume_other_sources", True) and st["state"] == "PLAYING" and st.get("uri") \
+                        and not self.fading and not self.paused:
+                    self._apply_volume(other_source=True)
+                elif n % 5 == 0:
                     self.volumes = self.player.volumes()
                 return
             if n % 30 == 0:  # about once a minute
@@ -1032,6 +1074,8 @@ class DJ:
         if self.last_daypart and dp != self.last_daypart:
             new_part = dp[0] != self.last_daypart[0]
             msg = f"now {dp[0]}" if new_part else f"now {(dp[1] or '').replace('_', ' ')} music"
+            if new_part and not self.inputs.auto:
+                self._back_to_auto("new time slot")
             if new_part and self.cfg.get("reset_trims_on_daypart", True) and (self.inputs.energy_trim or self.inputs.volume_trim):
                 self.inputs.energy_trim, self.inputs.volume_trim = 0.0, 0
                 self.save()
@@ -1325,5 +1369,6 @@ class DJ:
                 "played": self._played(),
                 "calibration": self._calibration_snapshot(),
                 "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"],
+                           "manual_volume_max_hours": self.cfg.get("manual_volume_max_hours", 3),
                            "room_offset_steps": self.room_offset_steps()},
             }

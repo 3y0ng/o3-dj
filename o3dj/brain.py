@@ -18,6 +18,7 @@ class Inputs:
     hour_override: float | None = None  # None = follow the clock
     auto: bool = True                 # auto volume from atmosphere
     manual_volume: int = 30           # used when auto is off
+    manual_since: float | None = None  # when the volume was set by hand (controller or Sonos app); it expires
     volume_trim: int = 0              # added to auto volume
     energy_trim: float = 0.0          # added to target energy
 
