@@ -19,6 +19,25 @@ def create_app(dj):
     def ok():
         return jsonify(dj.snapshot())
 
+    # Buttons run on one worker so they happen in order; if the DJ is busy (a slow speaker), the request answers
+    # after a second with the current view and the action finishes in the background, so the page never hangs.
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+    worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="actions")
+
+    def run_soon(fn, *args):
+        def job():
+            try:
+                fn(*args)
+            except Exception as e:  # report it where staff can see it
+                log.warning("action failed: %s", e)
+                dj.event(f"error: {str(e)[:80]}")
+            dj.refresh_status()
+        try:
+            worker.submit(job).result(timeout=1.0)
+        except FutureTimeout:
+            pass
+        return ok()
+
     @app.errorhandler(NotFound)
     def not_found(e):
         return jsonify({"error": "not found"}), 404
@@ -74,25 +93,15 @@ def create_app(dj):
     def control():
         body = request.get_json(force=True)
         action = body.get("action")
-        if action == "play":
-            dj.play()
-        elif action == "pause":
-            dj.pause()
-        elif action == "skip":
-            dj.skip()
-        elif action in ("up", "down"):
-            dj.vote(action, body.get("id"))
-        elif action == "restart":
-            dj.start()
-        else:
+        fns = {"play": dj.play, "pause": dj.pause, "skip": dj.skip, "restart": dj.start,
+               "up": lambda: dj.vote("up", body.get("id")), "down": lambda: dj.vote("down", body.get("id"))}
+        if action not in fns:
             return jsonify({"error": f"unknown action {action!r}"}), 400
-        dj.refresh_status()
-        return ok()
+        return run_soon(fns[action])
 
     @app.post("/api/inputs")
     def inputs():
-        dj.set_inputs(request.get_json(force=True))
-        return ok()
+        return run_soon(dj.set_inputs, request.get_json(force=True))
 
     @app.post("/api/mode")
     def mode():

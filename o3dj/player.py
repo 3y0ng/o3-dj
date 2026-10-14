@@ -26,6 +26,10 @@ class SonosPlayer:
     def __init__(self, coordinator_ip, crossfade=True):
         import soco  # imported here so --mock works without SoCo installed
         self.soco = soco
+        # A speaker that has dropped off the Wi-Fi used to hold every request for 20 s (SoCo's default), freezing the DJ
+        # and the controller. Healthy speakers answer in well under a second.
+        if hasattr(soco, "config"):
+            soco.config.REQUEST_TIMEOUT = 6.0
         self.anchor_ip = coordinator_ip
         self.crossfade = crossfade
         self.zones = {}          # ip -> SoCo
@@ -196,6 +200,16 @@ class SonosPlayer:
                 zone.stop()
         except Exception as e:
             log.warning("couldn't silence %s: %s", zone.player_name, e)
+
+    def ensure_crossfade(self):
+        """Crossfade is a setting of whichever room leads the group: switch it back on if it's off (e.g. after the
+        main room changed). Returns True if it had to. Only works while the queue is the source."""
+        with self.lock:
+            c = self.ctrl
+            if self.crossfade and not c.cross_fade:
+                c.cross_fade = True
+                return True
+            return False
 
     def party(self):
         with self.lock:
@@ -392,6 +406,14 @@ class MockPlayer:
     def set_anchor(self, ip):
         self.anchor_ip = ip
         self.group.add(ip)
+
+    cross_fade = True
+
+    def ensure_crossfade(self):
+        if not self.cross_fade:
+            self.cross_fade = True
+            return True
+        return False
 
     def make_main(self, ip, keep_old=True):
         """Like Sonos's group delegation: the queue and playback move to `ip`, which must be in the group."""
