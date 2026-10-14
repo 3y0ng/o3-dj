@@ -734,3 +734,17 @@ def test_other_rooms_not_answering_doesnt_move_the_main_room(dj, monkeypatch):
     for n in range(5):
         dj.safe_tick(n)
     assert dj.player.anchor_ip == office
+
+
+def test_unreachable_group_leader_also_hands_over(dj):
+    started(dj)
+    office, mezz = dj.player.anchor_ip, ip_of(dj, "Mock Mezzanine")
+    dj.speaker_action("join", mezz)
+    dj.player.ctrl_ip = "10.0.0.77"          # the group is led by a room that has gone quiet
+    dj.player.offline = {office}
+    real = dj.player._check
+    dj.player._check = lambda: (_ for _ in ()).throw(ConnectionError("HTTPConnectionPool(host='10.0.0.77', port=1400)"))
+    for n in range(dj.MAIN_FAILS_BEFORE_FAILOVER):
+        dj.safe_tick(n)
+    dj.player._check = real
+    assert dj.player.anchor_ip == mezz and dj.running

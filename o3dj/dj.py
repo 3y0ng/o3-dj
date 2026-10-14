@@ -1121,10 +1121,12 @@ class DJ:
             if n % 30 == 0:
                 log.warning("tick failed: %s", e)
             # The main room itself stopped answering (power cut, Wi-Fi drop): after a few tries, lead from another room.
-            self.main_fails = self.main_fails + 1 if unreachable and f"'{anchor}'" in str(e) else 0
+            leaders = {anchor, getattr(self.player, "ctrl_ip", anchor)}  # the main room, or the room leading its group
+            dead = next((ip for ip in leaders if unreachable and f"'{ip}'" in str(e)), None)
+            self.main_fails = self.main_fails + 1 if dead else 0
             if self.main_fails >= self.MAIN_FAILS_BEFORE_FAILOVER:
                 self.main_fails = 0
-                self._failover(anchor)
+                self._failover(dead)
 
     def _failover(self, old_ip):
         """Switch to another room that's on the network and carry on playing (start-up does the same)."""

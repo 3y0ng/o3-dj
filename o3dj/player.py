@@ -29,6 +29,7 @@ class SonosPlayer:
         self.anchor_ip = coordinator_ip
         self.crossfade = crossfade
         self.zones = {}          # ip -> SoCo
+        self.ctrl_ip = coordinator_ip
         self.lock = threading.RLock()
         self.error = None
 
@@ -101,7 +102,16 @@ class SonosPlayer:
     @property
     def ctrl(self):
         """The group coordinator for the anchor room; all transport goes here."""
-        return self.zones.get(self.anchor_ip, self.soco.SoCo(self.anchor_ip)).group.coordinator
+        c = self.zone(self.anchor_ip).group.coordinator
+        self.ctrl_ip = c.ip_address  # the room actually leading (the DJ fails over if it stops answering)
+        return c
+
+    def zone(self, ip):
+        """A room by IP, including one that came back on the network after start-up."""
+        z = self.zones.get(ip)
+        if z is None:
+            z = self.zones[ip] = self.soco.SoCo(ip)
+        return z
 
     def speakers(self):
         with self.lock:
@@ -120,17 +130,17 @@ class SonosPlayer:
     def set_mute(self, ip, on):
         """Per-room mute: the room stays in the group, so unmuting is instant."""
         with self.lock:
-            self.zones[ip].mute = bool(on)
+            self.zone(ip).mute = bool(on)
 
     def eq(self, ip):
         """The room's own tone settings (Sonos: bass/treble -10..10, loudness on/off)."""
         with self.lock:
-            z = self.zones[ip]
+            z = self.zone(ip)
             return {"bass": int(z.bass), "treble": int(z.treble), "loudness": bool(z.loudness)}
 
     def set_eq(self, ip, bass=None, treble=None, loudness=None):
         with self.lock:
-            z = self.zones[ip]
+            z = self.zone(ip)
             if bass is not None:
                 z.bass = int(bass)
             if treble is not None:
@@ -146,7 +156,7 @@ class SonosPlayer:
         """Poll group state until cond() holds (Sonos applies grouping changes asynchronously)."""
         end = time.monotonic() + secs
         while True:
-            self.zones[ip].zone_group_state.clear_cache()
+            self.zone(ip).zone_group_state.clear_cache()
             try:
                 if cond():
                     return True
@@ -164,7 +174,7 @@ class SonosPlayer:
             if ip == ctrl.ip_address:
                 self.anchor_ip = ip
                 return
-            new = self.zones[ip]
+            new = self.zone(ip)
             if not self._wait(ip, lambda: ip in {m.ip_address for m in ctrl.group.members}):
                 raise RuntimeError(f"{new.player_name} didn't join the group")
             ctrl.avTransport.DelegateGroupCoordinationTo([
@@ -195,13 +205,13 @@ class SonosPlayer:
         with self.lock:
             ctrl = self.ctrl
             if ip != ctrl.ip_address:
-                self.zones[ip].join(ctrl)
+                self.zone(ip).join(ctrl)
 
     def leave(self, ip):
         with self.lock:
             ctrl = self.ctrl
             if ip != ctrl.ip_address:
-                self.zones[ip].unjoin()
+                self.zone(ip).unjoin()
 
     # -- queue & transport ---------------------------------------------------
     def _didl(self, item):
@@ -319,7 +329,7 @@ class SonosPlayer:
 
     def set_volume(self, ip, vol):
         with self.lock:
-            self.zones[ip].volume = vol
+            self.zone(ip).volume = vol
 
 
 class MockPlayer:
