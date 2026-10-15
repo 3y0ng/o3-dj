@@ -374,6 +374,7 @@ def test_auto_volume_ramps_gently(dj):
     started(dj)
     ip = dj.player.anchor_ip
     dj.player.set_volume(ip, dj.targets["volume"] + 10)
+    dj.volume_set[ip] = dj.targets["volume"] + 10  # a level the DJ itself set (not a Sonos-app change, which is held)
     dj.tick(1)
     assert dj.player.volumes()[ip] == dj.targets["volume"] + 8
 
