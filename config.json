@@ -40,9 +40,9 @@
       "rain":   { "jazzhop": 2.0, "jazzy_cafe": 1.0, "chill": 0.75 }
     },
     "afternoon": {
-      "clear":  { "lofi_indie": 1.25, "jazzy_cafe": 0.75, "whimsy_fantasy": 0.5 },
-      "cloudy": { "whimsy_fantasy": 2.0, "lofi_indie": 1.0 },
-      "rain":   { "whimsy_fantasy": 1.5, "jazzhop": 1.0, "jazzy_cafe": 0.5 }
+      "clear":  { "lofi_indie": 1.5, "jazzy_cafe": 0.75, "whimsy_fantasy": 0.25 },
+      "cloudy": { "lofi_indie": 1.5, "jazzy_cafe": 0.5, "whimsy_fantasy": 0.5 },
+      "rain":   { "jazzhop": 1.25, "jazzy_cafe": 0.75, "whimsy_fantasy": 0.5 }
     },
     "early_evening": {
       "clear":  { "lofi_indie": 2.0, "indie_lofi_fantasy": 0.5, "chill": 0.625 },
