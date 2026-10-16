@@ -585,6 +585,7 @@ form .row { display: flex; gap: 7px; }
   .device { grid-template-columns: 104px minmax(0, 1fr); grid-template-areas: "brand screen" "brand enc" "keys keys" "rooms rooms"; }
 }
 @media (max-width: 720px) {
+  .brand { display: none; }  /* phones: no room for the grille column (wider screens keep it) */
   .stage { padding: 16px max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
 
   /* Screen: on a phone, scaling text with width makes it unreadable, so use fixed minimum sizes
