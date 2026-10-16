@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 class Inputs:
     genres: list = field(default_factory=lambda: ["chill"])
     moods: bool = True                # add genres for the time of day and weather (config `moods`)
+    picks: dict = field(default_factory=dict)  # genre -> mood slot it was switched on in, with moods on (see targets)
     weather: str = "clear"            # clear | cloudy | rain
     occupancy: int = 50               # 0..100 %
     occupancy_enabled: bool = False
@@ -55,6 +56,15 @@ def mood_daypart(cfg, hour):
         if hour % 24 >= start:
             name = label
     return name
+
+
+def mood_until(cfg, hour):
+    """The hour the current `moods` slot ends (when staff genre picks made in it expire)."""
+    starts = sorted(h for h, _ in cfg.get("mood_hours") or [])
+    if not starts:
+        return None
+    later = [h for h in starts if h > hour % 24]
+    return later[0] if later else starts[0]
 
 
 def mood_progress(cfg, hour):
@@ -136,6 +146,17 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
                 weights[g] = weights.get(g, 0.0) + added[g]
             reasons.append(f"{part.replace('_', ' ')}, {inputs.weather} -> " + "/".join(all_genres.get(g, g) for g in mood)
                            + f" ({share:.0%} new music)")
+            # Genres staff switched on during this slot get a guaranteed share (moods.pick_share) until the slot ends,
+            # even when the mood styles would otherwise take every pick.
+            picked = [g for g in selected if g in (inputs.picks or {})]
+            if picked:
+                ps = moods.get("pick_share", 0.3)
+                weights = {g: v * (1 - ps) for g, v in weights.items()}
+                added = {g: v * (1 - ps) for g, v in added.items()}
+                sel_unit *= (1 - ps)
+                for g in picked:
+                    weights[g] = weights.get(g, 0.0) + ps / len(picked)
+                reasons.append("staff picks " + "/".join(all_genres.get(g, g) for g in picked) + f" ({ps:.0%})")
 
     if counts is not None:
         _fallback(weights, added, cfg, counts, all_genres, reasons)
@@ -235,6 +256,7 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
         "clock": inputs.hour_override is None,
         "daypart": daypart,
         "mood_daypart": part,
+        "mood_until": mood_until(cfg, hour),
         "energy": round(_clip(energy, 0.05, 0.95), 3),
         "volume": int(round(_clip(volume, cfg["min_volume"], cfg["max_volume"]))),
         "volume_base": round(volume_base, 1),

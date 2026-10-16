@@ -248,3 +248,12 @@ def test_whimsy_fantasy_has_a_middle_share():
     for weather in ("clear", "cloudy", "rain"):
         w = tgt(15, weather=weather)["weights"]
         assert 0 < w["whimsy_fantasy"] < max(w.values()), weather
+
+
+def test_staff_genre_pick_gets_its_share_with_moods_on():
+    full = {g: 40 for g in GENRES}  # every style past full_at_tracks: the moods would take every pick
+    plain = brain.targets(brain.Inputs(genres=["chill", "asian"]), CFG, 15, GENRES, counts=full)["weights"]
+    assert plain.get("asian", 0) < 0.01  # without a pick, a lit key does nothing (the old behaviour)
+    t = brain.targets(brain.Inputs(genres=["chill", "asian"], picks={"asian": "afternoon"}), CFG, 15, GENRES, counts=full)
+    assert abs(t["weights"]["asian"] - CFG["moods"]["pick_share"]) < 0.01
+    assert t["mood_until"] == 17 and any("staff picks" in r for r in t["reasons"])

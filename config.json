@@ -34,6 +34,7 @@
   "mood_hours": [[6, "morning"], [12, "afternoon"], [17, "early_evening"], [20, "evening"], [22, "after_hours"]],
   "moods": {
     "enabled": true,
+    "pick_share": 0.3,
     "morning": {
       "clear":  { "bossa_house": 2.0, "jazzhop": 1.0, "chill": 0.75 },
       "cloudy": { "bossa_house": 2.0, "jazzhop": 1.0, "chill": 0.75 },
