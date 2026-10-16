@@ -86,7 +86,7 @@ def test_moods_follow_time_and_weather():
     clear_afternoon = tgt(15)["weights"]  # Ghibli Lofi leads; Electronic Lofi's share went to the Jazzy Cafe playlist
     assert clear_afternoon["lofi_indie"] > clear_afternoon["jazzy_cafe"] > clear_afternoon["whimsy_fantasy"] > 0
     assert "electronic_lofi" not in clear_afternoon
-    assert top(15, "cloudy") == "lofi_indie"  # Whimsy Fantasy is a minor share (staff downvoted it most)
+    assert top(15, "cloudy") == "lofi_indie"  # Ghibli Lofi just leads Whimsy Fantasy now
     assert top(19, "rain") == "jazzhop" and top(21, "rain") == "dark_academia"  # Dark Academia waits for 8pm
     assert top(18, "clear") == "lofi_indie" and top(21, "clear") == "indie_lofi_fantasy"  # Evening Lofi waits until 8pm
     assert top(23, "clear") == "ambient_dream" and top(3, "rain") == "ambient_dream"
@@ -243,7 +243,8 @@ def test_no_dark_academia_or_electronic_lofi_before_8pm():
             assert not w.get("dark_academia") and not w.get("electronic_lofi"), (hour, weather)
 
 
-def test_whimsy_fantasy_is_only_a_minor_share():
+def test_whimsy_fantasy_has_a_middle_share():
+    # staff downvoted it most: it plays every afternoon but no longer leads any of them
     for weather in ("clear", "cloudy", "rain"):
         w = tgt(15, weather=weather)["weights"]
-        assert 0 < w["whimsy_fantasy"] <= 0.21 and w["whimsy_fantasy"] < max(w.values()), weather
+        assert 0 < w["whimsy_fantasy"] < max(w.values()), weather
