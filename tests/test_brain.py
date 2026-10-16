@@ -42,7 +42,7 @@ def test_rain_boosts_jazz_when_selected():
 
 def test_rain_pulls_in_jazz_even_when_unselected():
     wet = tgt(14, genres=["chill"], weather="rain")
-    assert 0 < wet["weights"]["jazzy_cafe"] < wet["weights"]["chill"]
+    assert wet["weights"]["jazzy_cafe"] > 0
     assert "jazzy_cafe" not in tgt(14, genres=["chill"], weather="cloudy")["weights"]
 
 
@@ -82,12 +82,11 @@ def test_moods_follow_time_and_weather():
         w = {g: v for g, v in tgt(hour, weather=weather)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
         return max(w, key=w.get)
     assert top(9, "clear") == "bossa_house"
-    clear_afternoon = {g: v for g, v in tgt(15)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
-    total = sum(clear_afternoon.values())
-    assert {g: round(v / total, 2) for g, v in clear_afternoon.items()} == \
-        {"lofi_indie": 0.5, "electronic_lofi": 0.3, "whimsy_fantasy": 0.2}
+    clear_afternoon = tgt(15)["weights"]  # Ghibli Lofi leads; Electronic Lofi's share went to the Jazzy Cafe playlist
+    assert clear_afternoon["lofi_indie"] > clear_afternoon["jazzy_cafe"] > clear_afternoon["whimsy_fantasy"] > 0
+    assert "electronic_lofi" not in clear_afternoon
     assert top(15, "cloudy") == "whimsy_fantasy"
-    assert top(19, "rain") == "dark_academia"
+    assert top(19, "rain") == "jazzhop" and top(21, "rain") == "dark_academia"  # Dark Academia waits for 8pm
     assert top(18, "clear") == "lofi_indie" and top(21, "clear") == "indie_lofi_fantasy"  # Evening Lofi waits until 8pm
     assert top(23, "clear") == "ambient_dream" and top(3, "rain") == "ambient_dream"
     t = tgt(9)
@@ -234,3 +233,10 @@ def test_busy_room_has_a_volume_floor():
     assert steps == sorted(steps) and max(b - a for a, b in zip(steps, steps[1:])) <= 8  # climbs, no cliff
     assert vol(14, 75) >= vol(14, 40)                # a louder schedule still wins
     assert brain.targets(brain.Inputs(occupancy=95), cfg, 21.5, GENRES)["volume"] == 38  # needs live occupancy
+
+
+def test_no_dark_academia_or_electronic_lofi_before_8pm():
+    for hour in (7, 10, 14, 16, 18, 19.9):
+        for weather in ("clear", "cloudy", "rain"):
+            w = tgt(hour, weather=weather)["weights"]
+            assert not w.get("dark_academia") and not w.get("electronic_lofi"), (hour, weather)
