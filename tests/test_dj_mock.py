@@ -374,6 +374,7 @@ def test_auto_volume_ramps_gently(dj):
     started(dj)
     ip = dj.player.anchor_ip
     dj.player.set_volume(ip, dj.targets["volume"] + 10)
+    dj.volume_set[ip] = dj.targets["volume"] + 10  # a level the DJ itself set (not a Sonos-app change, which is held)
     dj.tick(1)
     assert dj.player.volumes()[ip] == dj.targets["volume"] + 8
 
@@ -748,3 +749,53 @@ def test_unreachable_group_leader_also_hands_over(dj):
         dj.safe_tick(n)
     dj.player._check = real
     assert dj.player.anchor_ip == mezz and dj.running
+
+
+# -- hand-set volume holds for a while; auto volume also covers other apps ----------------
+
+def test_controller_volume_holds_then_expires_after_max_hours(dj, monkeypatch):
+    started(dj)
+    dj.set_inputs({"auto": False, "manual_volume": 44})
+    assert not dj.inputs.auto and dj.inputs.manual_since
+    dj.tick(1)
+    assert not dj.inputs.auto                      # still held
+    real = time.time
+    monkeypatch.setattr(dj_mod.time, "time", lambda: real() + dj.cfg["manual_volume_max_hours"] * 3600 + 5)
+    dj.tick(2)
+    assert dj.inputs.auto and dj.inputs.manual_since is None
+    assert any("volume back on the schedule" in e["msg"] for e in dj.events)
+
+
+def test_hand_set_volume_ends_at_the_next_time_slot(dj, monkeypatch):
+    monkeypatch.setattr(dj, "hour_now", lambda: 11.5)
+    started(dj)
+    dj.set_inputs({"auto": False, "manual_volume": 44})
+    monkeypatch.setattr(dj, "hour_now", lambda: 12.2)  # 12pm: a new volume slot
+    dj.tick(1)
+    assert dj.inputs.auto
+
+
+def test_sonos_app_change_is_held_not_undone(dj):
+    started(dj)
+    main = dj.player.anchor_ip
+    dj.tick(1)                                      # DJ notes the level it set
+    dj.player.rooms[main]["volume"] += 8            # someone turns it up in the Sonos app
+    held = dj.player.rooms[main]["volume"]
+    dj.tick(2); dj.tick(3)
+    assert not dj.inputs.auto and dj.player.volumes()[main] == held
+    assert any("in the Sonos app" in e["msg"] for e in dj.events)
+
+
+def test_auto_volume_applies_while_another_app_plays(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    d = started(make_dj(tmp_path, player))
+    player.queue[player.index] = dict(player.queue[player.index], uri="x-sonos-vli:spotify")  # staff Spotify
+    for n in range(1, 5):
+        d.tick(n)
+    assert not d.running                            # the DJ stood down...
+    main = player.anchor_ip
+    player.rooms[main]["volume"] = 5
+    d.volume_set = {}                               # (as if the DJ hadn't set it: no "app change")
+    for n in range(5, 40):
+        d.tick(n)
+    assert player.volumes()[main] == d.targets["volume"]  # ...but the room still follows the schedule
