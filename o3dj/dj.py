@@ -97,6 +97,14 @@ class DJ:
         self.speakers = []
         self.volumes = {}
         self.targets = self.compute()
+        if "picks" not in saved and self.inputs.moods:
+            # Before picks existed, keys lit with moods on did nothing once the library was full (e.g. an old tap on
+            # Dark Academia): switch them off so the keys show what really plays, rather than suddenly playing them.
+            stale = [g for g in self.inputs.genres if g not in cfg["default_genres"]]
+            if stale:
+                self.inputs.genres = [g for g in self.inputs.genres if g not in stale] or list(cfg["default_genres"])
+                self._stale_picks = stale
+            self.targets = self.compute()
         self.events = deque(maxlen=14)
         self.prefetcher = None
         self._cache_names = {}
@@ -111,6 +119,11 @@ class DJ:
         self._restore_main()
         self.base_url = self._base_url()
         self.event("DJ ready" + ("" if player.live else " (mock speakers)"))
+        if getattr(self, "_stale_picks", None):
+            names = self.library.genres()
+            self.event("genre keys switched off (they weren't playing with auto on): "
+                       + ", ".join(names.get(g, g) for g in self._stale_picks))
+            self.save()
 
     # -- helpers ---------------------------------------------------------------
     def event(self, msg):
@@ -638,6 +651,7 @@ class DJ:
                 if routed.get("occupancy_enabled") is False:  # occ key off: hand occupancy back to the feed
                     self.live.clear_override("occupancy")
                     changed.add("occupancy")
+            patch = self._track_picks(patch)
             if patch.get("auto") is True and not self.inputs.auto:
                 # auto volume back on: back to the schedule's level for this time (drop any old trim)
                 patch = {**patch, "volume_trim": 0, "manual_since": None}
@@ -927,6 +941,32 @@ class DJ:
         self.volume_set = dict(vols)
         self.volumes = vols
 
+    def _track_picks(self, patch):
+        """A genre switched on while the mood styles are on is a staff pick for the current slot (it gets
+        moods.pick_share until the slot ends). Switching moods off clears them."""
+        if patch.get("moods") is False:
+            return {**patch, "picks": {}}
+        if "genres" not in patch or not self.inputs.moods:
+            return patch
+        part = self.targets.get("mood_daypart")
+        old, new = set(self.inputs.genres), set(patch["genres"])
+        picks = {g: p for g, p in (self.inputs.picks or {}).items() if g in new}
+        for g in new - old:
+            picks[g] = part
+        return {**patch, "picks": picks}
+
+    def _expire_picks(self, part):
+        """The mood slot changed: genres staff switched on in the last one go back off."""
+        picks = {g: p for g, p in (self.inputs.picks or {}).items() if p != part}
+        if not picks:
+            return
+        genres = [g for g in self.inputs.genres if g not in picks] or list(self.cfg["default_genres"])
+        self.inputs.genres, self.inputs.picks = genres, {}
+        self.save()
+        self.targets = self.compute()
+        names = self.library.genres()
+        self.event("genre picks ended with the time slot: " + ", ".join(names.get(g, g) for g in picks))
+
     def _check_manual_hold(self):
         """A hand-set volume (controller slider or Sonos app) lasts until the next time slot or
         manual_volume_max_hours, whichever comes first; then the schedule takes over again."""
@@ -1100,6 +1140,8 @@ class DJ:
         dp = (self.targets["daypart"], self.targets.get("mood_daypart"))
         if self.last_daypart and dp != self.last_daypart:
             new_part = dp[0] != self.last_daypart[0]
+            if dp[1] != self.last_daypart[1]:
+                self._expire_picks(dp[1])
             msg = f"now {dp[0]}" if new_part else f"now {(dp[1] or '').replace('_', ' ')} music"
             if new_part and not self.inputs.auto:
                 self._back_to_auto("new time slot")
@@ -1412,5 +1454,6 @@ class DJ:
                 "calibration": self._calibration_snapshot(),
                 "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"],
                            "manual_volume_max_hours": self.cfg.get("manual_volume_max_hours", 3),
+                           "pick_share": (self.cfg.get("moods") or {}).get("pick_share", 0.3),
                            "room_offset_steps": self.room_offset_steps()},
             }

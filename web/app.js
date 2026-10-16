@@ -529,8 +529,18 @@ function initFeedback() {
 
 function toggleGenre(key) {
   const set = new Set(S.inputs.genres);
-  if (set.has(key)) { if (set.size > 1) set.delete(key); } else set.add(key);
+  const adding = !set.has(key);
+  if (!adding) { if (set.size > 1) set.delete(key); } else set.add(key);
   setInputs({ genres: [...set] }, 0);
+  // With auto (time-of-day styles) on, a key switched on is a pick for this time slot only.
+  const label = ((S.genres[key] || {}).label || key).toLowerCase();
+  if (S.inputs.moods !== false && adding) {
+    const until = S.targets.mood_until;
+    const share = Math.round(((S.limits && S.limits.pick_share) || 0.3) * 100);
+    popup(label, `${share}%`, until != null ? `of the mix until ${fmtHour(until)}, then it switches off` : "of the mix this time slot", "var(--orange)");
+  } else if (!adding) {
+    popup(label, "off", S.inputs.moods !== false ? "back to the time-of-day mix" : "", "var(--dim)");
+  }
 }
 
 // ── render ──────────────────────────────────────────────────────────

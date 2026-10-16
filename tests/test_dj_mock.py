@@ -874,3 +874,31 @@ def test_crossfade_switched_back_on(dj):
     dj.player.cross_fade = False             # e.g. the new main room after a failover
     dj.tick(30)
     assert dj.player.cross_fade and any("crossfade was off" in e["msg"] for e in dj.events)
+
+
+# -- staff genre picks with auto (moods) on ---------------------------------------------
+
+def test_genre_switched_on_with_auto_is_a_pick_until_the_slot_ends(dj, monkeypatch):
+    monkeypatch.setattr(dj, "hour_now", lambda: 15.0)   # afternoon slot (until 17:00)
+    started(dj)
+    dj.set_inputs({"genres": dj.inputs.genres + ["asian"]})
+    assert dj.inputs.picks == {"asian": "afternoon"}
+    monkeypatch.setattr(dj, "hour_now", lambda: 17.1)  # early evening: the pick expires
+    dj.tick(1)
+    assert "asian" not in dj.inputs.genres and dj.inputs.picks == {}
+    assert any("genre picks ended" in e["msg"] for e in dj.events)
+
+
+def test_with_auto_off_genre_keys_are_exact_and_not_picks(dj):
+    started(dj)
+    dj.set_inputs({"moods": False})
+    dj.set_inputs({"genres": ["asian"]})
+    assert dj.inputs.picks == {} and set(dj.targets["weights"]) == {"asian"}
+
+
+def test_keys_lit_before_picks_existed_are_switched_off(tmp_path):
+    import json as _j
+    (tmp_path / "state.json").write_text(_j.dumps({"inputs": {"genres": ["chill", "dark_academia"], "moods": True}}))
+    d = make_dj(tmp_path)
+    assert d.inputs.genres == ["chill"] and d.inputs.picks == {}   # no surprise Dark Academia
+    assert any("switched off" in e["msg"] for e in d.events)
