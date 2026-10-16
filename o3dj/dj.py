@@ -89,6 +89,7 @@ class DJ:
         self.last_skip = 0.0
         self.main_fails = 0       # ticks in a row the main room hasn't answered (see safe_tick)
         self.volume_set = {}      # ip -> the volume the DJ last set or saw, to notice changes made in the Sonos app
+        self._last_snapshot = None
         self.dj_moved = 0.0       # when the DJ itself last changed track (skip, jump, start), to tell its moves from others'
         self.last_daypart = None
         self.last_quiet = None   # inside quiet_hours at the last tick (None: not checked yet)
@@ -440,6 +441,7 @@ class DJ:
         threading.Thread(target=self._fade_skip, daemon=True, name="fade-skip").start()
 
     def _fade_skip(self):
+        start = None
         try:
             start = self.player.group_volume()
             for f in (0.7, 0.45, 0.25, 0.1):
@@ -460,6 +462,18 @@ class DJ:
             except Exception:
                 pass
         finally:
+            # On bad Wi-Fi the fade back up can fail half way and leave the rooms quiet: make sure it's restored.
+            for _ in range(3):
+                if start is None:
+                    break
+                try:
+                    if self.player.group_volume() < start - 1:
+                        self.player.set_group_volume(start)
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            self.volume_set = {}
+            self.dj_moved = time.time()
             self.fading = False
 
     def vote(self, direction, tid=None):
@@ -724,6 +738,8 @@ class DJ:
         with self.lock:
             p = self.player
             rooms = {s["ip"]: s for s in p.speakers()}
+            if ip is not None and ip not in rooms and p.answers(ip):  # discovery missed it, but it's there
+                rooms = {s["ip"]: s for s in p.speakers()}
             if ip is not None and ip not in rooms:
                 raise ValueError("unknown speaker - press scan")
             if action == "party":
@@ -846,6 +862,16 @@ class DJ:
             except Exception as e:  # tone is a nicety: never let it stop the music
                 log.warning("couldn't set EQ on %s: %s", sp["name"], e)
 
+    def _ensure_crossfade(self):
+        if not self.cfg.get("crossfade") or (self.status or {}).get("uri", "").find(":8330/") < 0 and self.player.live:
+            return  # off in config, or the queue isn't the source (crossfade can't be set then)
+        try:
+            if self.player.ensure_crossfade():
+                main = next((s["name"] for s in self.speakers if s.get("coordinator")), "the main room")
+                self.event(f"crossfade was off on {main} - switched back on")
+        except Exception as e:
+            log.warning("couldn't check crossfade: %s", e)
+
     def _adopt_eq(self):
         """Take the speakers' current tone as the starting point: the main room's becomes the venue's,
         and any room that differs keeps its own as a trim. So turning the DJ on never changes the sound."""
@@ -881,7 +907,7 @@ class DJ:
         vols = self.player.volumes()
         main = next((s["ip"] for s in self.speakers if s.get("coordinator")), None)
         # Staff turned it up/down in the Sonos app: hold their level (like the controller's slider) instead of undoing it.
-        if max_step < 100 and not self.fading and main in vols and main in self.volume_set \
+        if max_step < 100 and not self.fading and time.time() - self.dj_moved > 20 and main in vols and main in self.volume_set \
                 and abs(vols[main] - self.volume_set[main]) >= self.APP_CHANGE:
             level = vols[main] - self.room_offset(names.get(main, ""))
             self.inputs.auto, self.inputs.manual_volume, self.inputs.manual_since = False, int(level), time.time()
@@ -1022,6 +1048,7 @@ class DJ:
                 return
             if n % 30 == 0:  # about once a minute
                 self._apply_eq()
+                self._ensure_crossfade()
 
             cur = self.uri_map.get(st["uri"])
             state = st["state"]
@@ -1244,19 +1271,19 @@ class DJ:
         note, who = (note or "").strip()[:500], (who or "").strip()[:40]
         if not tags and not note:
             raise ValueError("pick a reason or write a note")
-        with self.lock:
-            i, t, st = self.effective_inputs(), self.targets, self.status or {}
-            vols = [v for v in (self.volumes or {}).values() if v is not None]
-            now = self.track_info(self.now_id) if self.now_id else None
-            entry = {
-                "at": datetime.now().isoformat(timespec="seconds"), "tags": tags, "note": note, "who": who,
-                "song": now and now["title"], "song_id": self.now_id, "style": now and now["genre_label"],
-                "song_energy": now and now["energy"], "song_bpm": now and now["bpm"],
-                "volume_target": t.get("volume"), "volume_speakers": round(sum(vols) / len(vols)) if vols else None,
-                "auto_vol": i.auto, "energy_target": t.get("energy"), "daypart": t.get("daypart"),
-                "occupancy": i.occupancy if i.occupancy_enabled else None, "weather": i.weather, "mode": self.mode,
-                "playing": self.running and not self.paused and st.get("state") == "PLAYING",
-            }
+        # read without the DJ's lock: saving a note must never wait on a slow speaker
+        i, t, st = self.effective_inputs(), self.targets, self.status or {}
+        vols = [v for v in (self.volumes or {}).values() if v is not None]
+        now = self.track_info(self.now_id) if self.now_id else None
+        entry = {
+            "at": datetime.now().isoformat(timespec="seconds"), "tags": tags, "note": note, "who": who,
+            "song": now and now["title"], "song_id": self.now_id, "style": now and now["genre_label"],
+            "song_energy": now and now["energy"], "song_bpm": now and now["bpm"],
+            "volume_target": t.get("volume"), "volume_speakers": round(sum(vols) / len(vols)) if vols else None,
+            "auto_vol": i.auto, "energy_target": t.get("energy"), "daypart": t.get("daypart"),
+            "occupancy": i.occupancy if i.occupancy_enabled else None, "weather": i.weather, "mode": self.mode,
+            "playing": self.running and not self.paused and st.get("state") == "PLAYING",
+        }
         with self.feedback_lock:
             self.feedback_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.feedback_file, "a") as f:
@@ -1321,6 +1348,21 @@ class DJ:
         return {"new": new, "order": round(order + (1 - best), 3)}  # the bigger share comes first within a slot
 
     def snapshot(self):
+        """The controller's view. If the DJ is busy waiting on a slow speaker, answer straight away with the last
+        view (marked busy) instead of freezing every device that polls."""
+        if self.lock.acquire(timeout=0.5):
+            try:
+                self._last_snapshot = self._snapshot()
+            finally:
+                self.lock.release()
+            return self._last_snapshot
+        if not self._last_snapshot:
+            with self.lock:
+                self._last_snapshot = self._snapshot()
+            return self._last_snapshot
+        return {**self._last_snapshot, "events": list(self.events), "busy": True}
+
+    def _snapshot(self):
         with self.lock:
             lib = self.library.all()
             genres = self.library.genres()

@@ -64,6 +64,9 @@ def make_dj(tmp_path, player=None):
     d.cfg = {**CFG, "skip_crossfade_seconds": 0,  # plain skips; the crossfade skip is tested separately
              # no per-genre volume offsets, so volume checks don't depend on which genre the clock picks
              "genres": {g: {k: v for k, v in c.items() if k != "volume_offset"} for g, c in CFG["genres"].items()}}
+    # A fixed time of day (2pm), so results don't depend on when the tests run: on CI at 06:00 UTC the real clock
+    # fell in quiet hours (5-7am) and the DJ paused. Tests about time set their own hour_now.
+    d.hour_now = lambda: 14.0
     return d
 
 
@@ -778,6 +781,7 @@ def test_hand_set_volume_ends_at_the_next_time_slot(dj, monkeypatch):
 def test_sonos_app_change_is_held_not_undone(dj):
     started(dj)
     main = dj.player.anchor_ip
+    dj.dj_moved = 0                                 # well after the DJ's own start/skips
     dj.tick(1)                                      # DJ notes the level it set
     dj.player.rooms[main]["volume"] += 8            # someone turns it up in the Sonos app
     held = dj.player.rooms[main]["volume"]
@@ -799,3 +803,74 @@ def test_auto_volume_applies_while_another_app_plays(tmp_path):
     for n in range(5, 40):
         d.tick(n)
     assert player.volumes()[main] == d.targets["volume"]  # ...but the room still follows the schedule
+
+
+# -- responsiveness on bad Wi-Fi, skips, crossfade ----------------------------------------
+
+import threading
+
+
+def _hold_lock(dj, seconds):
+    held = threading.Event()
+    def hold():
+        with dj.lock:
+            held.set()
+            time.sleep(seconds)
+    t = threading.Thread(target=hold, daemon=True)
+    t.start()
+    held.wait()
+    return t
+
+
+def test_status_answers_at_once_while_the_dj_waits_on_a_speaker(dj):
+    started(dj)
+    dj.snapshot()
+    t = _hold_lock(dj, 2.0)                  # the DJ is stuck on a slow speaker
+    t0 = time.monotonic()
+    snap = dj.snapshot()
+    assert time.monotonic() - t0 < 1.0 and snap["busy"]
+    e = dj.add_feedback(["too quiet"])       # saving feedback doesn't wait either
+    assert time.monotonic() - t0 < 1.5 and e["tags"] == ["too quiet"]
+    t.join()
+
+
+def test_buttons_answer_within_a_second_and_still_happen(dj):
+    from o3dj.server import create_app
+    started(dj)
+    client = create_app(dj).test_client()
+    dj.snapshot()
+    first = dj.now_id
+    t = _hold_lock(dj, 2.0)
+    t0 = time.monotonic()
+    r = client.post("/api/control", json={"action": "skip"})
+    assert r.status_code == 200 and time.monotonic() - t0 < 2.0 and r.get_json().get("busy")
+    t.join(); time.sleep(0.3); dj.tick(5)
+    assert dj.now_id != first                # the skip went through once the speaker answered
+
+
+def test_interrupted_fade_skip_restores_volume_and_isnt_mistaken_for_the_sonos_app(dj, monkeypatch):
+    started(dj)
+    dj.fade_skips = True
+    dj.cfg = dict(dj.cfg, skip_crossfade_seconds=0)  # force the volume-fade skip
+    dj.tick(1)
+    start = dj.player.group_volume()
+    real_set = dj.player.set_group_volume
+    calls = {"n": 0}
+    def flaky(v):                            # the fade back up fails half way (bad Wi-Fi)
+        calls["n"] += 1
+        if calls["n"] in (6, 7):
+            raise ConnectionError("Wi-Fi blip")
+        real_set(v)
+    monkeypatch.setattr(dj.player, "set_group_volume", flaky)
+    monkeypatch.setattr(dj_mod.time, "sleep", lambda s: None)
+    dj._fade_skip()
+    assert dj.player.group_volume() >= start - 1
+    dj.tick(2); dj.tick(3)
+    assert dj.inputs.auto                    # not held as a "Sonos app" change
+
+
+def test_crossfade_switched_back_on(dj):
+    started(dj)
+    dj.player.cross_fade = False             # e.g. the new main room after a failover
+    dj.tick(30)
+    assert dj.player.cross_fade and any("crossfade was off" in e["msg"] for e in dj.events)

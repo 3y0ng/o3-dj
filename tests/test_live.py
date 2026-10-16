@@ -135,7 +135,7 @@ def test_venue_timezone(tmp_path):
     dj = make_dj(tmp_path)
     dj.live.cfg["timezone"] = "Pacific/Auckland"
     nz = datetime.now(timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo("Pacific/Auckland"))
-    assert abs(dj.hour_now() - (nz.hour + nz.minute / 60)) < 0.05
+    assert abs(type(dj).hour_now(dj) - (nz.hour + nz.minute / 60)) < 0.05  # the real clock, not the tests' fixed hour
 
 
 # -- O3 mode: existing get_location_occupancy_counts() as a signed-in app user ------------

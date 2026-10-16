@@ -13,6 +13,7 @@ const EXTRA_COLORS = ["#f1f1ee", "#ffd23d", "#c77dff", "#ff4f8b"];
 const WEATHER_GLYPH = { clear: "☀ clear", cloudy: "☁ cloudy", rain: "☂ rain" };
 
 let S = null;               // last snapshot
+const votedNow = new Set();  // songs this device voted on during their current play
 let pending = {};           // input changes not yet sent
 let sendTimer = null;
 let lastInteraction = 0;    // ignore polled inputs briefly after local edits
@@ -411,9 +412,20 @@ function initKeys() {
   $("#k-skip").addEventListener("click", () => {
     const wiz = S.calibration && S.calibration.wizard;
     if (wiz && !wiz.proposal) return act("/api/calibration", { action: "another" });
+    popup("skip", "▶▶", "next song coming up", "var(--white)");
     act("/api/control", { action: "skip" });
   });
-  $("#k-up").addEventListener("click", () => act("/api/control", { action: "up" }));
+  // Votes say what they did: one per song per play; "not this" also skips.
+  const vote = (dir) => {
+    const n = S && S.now;
+    if (!n) return popup(dir === "up" ? "love it" : "not this", "—", "nothing playing", "var(--dim)");
+    if (votedNow.has(n.id)) return popup("already voted", dir === "up" ? "▲" : "▼", "one vote per song each time it plays", "var(--dim)");
+    votedNow.add(n.id);
+    popup(dir === "up" ? "loved" : "downvoted", dir === "up" ? "▲" : "▼",
+      dir === "up" ? `${n.title} · plays more often` : `${n.title} · skipping it`, dir === "up" ? "var(--green)" : "var(--red)");
+    act("/api/control", { action: dir });
+  };
+  $("#k-up").addEventListener("click", () => vote("up"));
   $("#k-listen").addEventListener("click", () => {
     if (!S) return;
     if (listenOn(S) && listen.blocked) return syncListen(S);  // the browser was waiting for a tap
@@ -423,7 +435,7 @@ function initKeys() {
     syncListen(S);
     popup("listen", next, next === "on" ? "playing on this device, in step with the speakers" : "this device is quiet", "var(--green)");
   });
-  $("#k-down").addEventListener("click", () => act("/api/control", { action: "down" }));
+  $("#k-down").addEventListener("click", () => vote("down"));
   $("#k-party").addEventListener("click", () => {
     const others = S.speakers.filter((sp) => !sp.in_group).map((sp) => sp.name);
     if (!others.length) return;
@@ -493,16 +505,25 @@ function initFeedback() {
     const r = dlg.getBoundingClientRect();
     if (e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) dlg.close();
   });
+  const send = form.querySelector('button[type="submit"]');
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (send.disabled) return;  // already sending: no doubles
     try { localStorage.setItem(FB_WHO, form.who.value.trim()); } catch (err) { /* storage blocked */ }
+    send.disabled = true; send.textContent = "sending…"; msg.className = "hint"; msg.textContent = "";
     try {
       const d = await api("/api/feedback", { tags: [...picked], note: form.note.value, who: form.who.value });
       $("#fb-recent").innerHTML = fbRecentHTML(d.recent);
-      msg.textContent = "saved ✓ thanks";
+      $("#fb-recent li")?.classList.add("just-sent");
+      msg.className = "hint ok"; msg.textContent = "✓ sent — thanks! it's at the top of the list below";
+      send.textContent = "sent ✓";
       picked.clear(); $$(".fb-tag", dlg).forEach((b) => b.classList.remove("on")); form.note.value = "";
-      setTimeout(() => dlg.close(), 1200);
-    } catch (err) { msg.textContent = err.message; }
+      setTimeout(() => { dlg.close(); popup("feedback", "✓", "sent — thanks", "var(--green)"); }, 1500);
+    } catch (err) {
+      msg.className = "hint err"; msg.textContent = "not sent: " + err.message + " — try again";
+    } finally {
+      setTimeout(() => { send.disabled = false; send.textContent = "send"; }, 1500);
+    }
   });
 }
 
@@ -615,8 +636,10 @@ function render(s, local = false) {
 
   const foot = $("#foot");
   if (!foot.classList.contains("bad")) {
-    foot.textContent = `${s.live ? "live sonos" : "mock speakers (silent)"} · speakers stream cache from ${s.health.base_url} · ${s.cache.mb} MB cached · ${s.health.prefetch}`;
+    foot.textContent = s.busy ? "⏳ waiting for a speaker to answer (slow Wi-Fi) · buttons still work, they'll apply in a moment"
+      : `${s.live ? "live sonos" : "mock speakers (silent)"} · speakers stream cache from ${s.health.base_url} · ${s.cache.mb} MB cached · ${s.health.prefetch}`;
   }
+  if (s.now && !votedNow.has("@" + s.now.id)) { votedNow.clear(); votedNow.add("@" + s.now.id); }  // new song: votes open again
 }
 
 function renderMode(s) {

@@ -554,6 +554,9 @@ form .row { display: flex; gap: 7px; }
 .hint { margin: 2px 0 0; font-size: 11px; color: var(--ink-soft); }
 .hint code { font-family: var(--mono); font-size: 10.5px; }
 .hint.err { color: #c43d0a; min-height: 1em; }
+.hint.ok { color: #1f9d5c; font-weight: 600; }
+.fb-recent li.just-sent { background: #eafaf0; border-radius: 4px; }
+.fb-dialog button[type="submit"]:disabled { opacity: .7; cursor: default; }
 .empty-note { color: var(--ink-soft); font-size: 12px; }
 
 .foot { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 22px; }
@@ -567,10 +570,22 @@ form .row { display: flex; gap: 7px; }
   .genre-rows { column-gap: 18px; }
 }
 @media (max-width: 1020px) {
-  .device { grid-template-columns: minmax(0, 1fr) 260px; grid-template-areas: "screen enc" "keys keys" "rooms rooms"; }
-  .brand { display: none; }
+  /* narrower window: keep the grille and wordmark, in a slimmer column, rather than hiding them */
+  .device { grid-template-columns: 112px minmax(0, 1fr) 240px; grid-template-areas: "brand screen enc" "keys keys keys" "rooms rooms rooms"; }
+  .brand { gap: 8px; }
+  .grille { min-height: 80px; }
+  .wordmark { font-size: 26px; }
+  .model { font-size: 9.5px; }
+  .gkey { width: 58px; }
+  .genre-rows .gsub:last-child .gkey { min-width: 58px; }
+  .gkey em { max-width: 54px; font-size: 9.5px; }
+}
+@media (min-width: 721px) and (max-width: 880px) {
+  /* tablet portrait: the screen keeps its width, the faders sit under it, the grille stays on the left */
+  .device { grid-template-columns: 104px minmax(0, 1fr); grid-template-areas: "brand screen" "brand enc" "keys keys" "rooms rooms"; }
 }
 @media (max-width: 720px) {
+  .brand { display: none; }  /* phones: no room for the grille column (wider screens keep it) */
   .stage { padding: 16px max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
 
   /* Screen: on a phone, scaling text with width makes it unreadable, so use fixed minimum sizes
