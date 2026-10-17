@@ -859,10 +859,32 @@ function roomStrip(sp) {
     </div>`;
 }
 
+// Room switches show their new position straight away; the server confirms in the background (a slow speaker can
+// take seconds). Until the server's view agrees (or 20 s pass), the switch shows what was pressed.
+const pendingRoom = {};  // ip -> {muted?, in_group?, until}
+function roomView(sp) {
+  const p = pendingRoom[sp.ip];
+  if (!p) return sp;
+  const agrees = Object.keys(p).every((k) => k === "until" || sp[k] === p[k]);
+  if (agrees || Date.now() > p.until) { delete pendingRoom[sp.ip]; return sp; }
+  return { ...sp, ...p };
+}
+
+async function roomSend(sp, action, value, shows) {
+  if (shows) { pendingRoom[sp.ip] = { ...shows, until: Date.now() + 20000 }; renderRooms(S); }
+  try {
+    render(await api("/api/speakers", value === undefined ? { action, ip: sp.ip } : { action, ip: sp.ip, value }));
+  } catch (e) {
+    delete pendingRoom[sp.ip];
+    renderRooms(S);
+    flashFoot(e.message);
+  }
+}
+
 function roomAction(sp, what) {
   const inGroup = S.speakers.filter((x) => x.in_group);
-  const send = (action, value) => act("/api/speakers", value === undefined ? { action, ip: sp.ip } : { action, ip: sp.ip, value });
-  if (what === "mute") return send("mute", !sp.muted);
+  const send = (action, value, shows) => roomSend(sp, action, value, shows);
+  if (what === "mute") return send("mute", !sp.muted, { muted: !sp.muted });
   if (what === "main") {
     if (sp.coordinator) return popup("main", sp.name, "leads the group and holds the queue", "var(--green)");
     if (!sp.in_group && !confirm(`Make ${sp.name} the main room? It joins the DJ group, and anything it's playing now will stop.`)) return;
@@ -871,7 +893,7 @@ function roomAction(sp, what) {
   // on/off
   if (!sp.in_group) {
     if (!confirm(`Add ${sp.name} to the DJ group? Anything it's playing now will stop.`)) return;
-    return send("join");
+    return send("join", undefined, { in_group: true });
   }
   if (sp.coordinator) {
     const msg = inGroup.length > 1
@@ -879,7 +901,7 @@ function roomAction(sp, what) {
       : `${sp.name} is the only room playing. Switching it off pauses the music. Continue?`;
     if (!confirm(msg)) return;
   }
-  return send("leave");
+  return send("leave", undefined, sp.coordinator ? null : { in_group: false });
 }
 
 function setRoomOffset(ip, value) {
@@ -904,7 +926,7 @@ function initRoomStrip(el) {
   const ip = el.dataset.ip;
   $$("[data-act]", el).forEach((b) => b.addEventListener("click", () => {
     const sp = S.speakers.find((x) => x.ip === ip);
-    if (sp) roomAction(sp, b.dataset.act);
+    if (sp) roomAction(roomView(sp), b.dataset.act);
   }));
   // in eq mode, the room's plate picks it for tuning (tap again for all rooms)
   $(".ch-plate", el).addEventListener("click", () => {
@@ -938,7 +960,7 @@ function renderRooms(s) {
     wrap.innerHTML = s.speakers.map(roomStrip).join("");
     $$(".room", wrap).forEach(initRoomStrip);
   }
-  s.speakers.forEach((sp) => {
+  s.speakers.map(roomView).forEach((sp) => {
     const el = $(`.room[data-ip="${sp.ip}"]`, wrap);
     if (!el) return;
     const vol = s.volumes?.[sp.ip];

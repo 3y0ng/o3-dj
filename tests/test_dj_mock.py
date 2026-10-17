@@ -516,6 +516,7 @@ def test_room_offset_from_controller_overrides_config(tmp_path):
 def test_mute_keeps_room_in_group_and_leaves_volume_alone(dj):
     started(dj)
     ip = dj.player.anchor_ip
+    dj.player.set_volume(ip, dj.targets["volume"]); dj.volume_set[ip] = dj.targets["volume"]
     dj.speaker_action("mute", ip, True)
     room = next(s for s in dj.speakers if s["ip"] == ip)
     assert room["muted"] and room["in_group"] and room["coordinator"]
@@ -802,7 +803,10 @@ def test_auto_volume_applies_while_another_app_plays(tmp_path):
     d.volume_set = {}                               # (as if the DJ hadn't set it: no "app change")
     for n in range(5, 40):
         d.tick(n)
-    assert player.volumes()[main] == d.targets["volume"]  # ...but the room still follows the schedule
+    assert 5 < player.volumes()[main] <= 12              # ...drifting 1 step every ~10 s, not jumping
+    for n in range(40, 400):
+        d.tick(n)
+    assert player.volumes()[main] == d.targets["volume"]  # ...and the room still follows the schedule
 
 
 # -- responsiveness on bad Wi-Fi, skips, crossfade ----------------------------------------
@@ -902,3 +906,52 @@ def test_keys_lit_before_picks_existed_are_switched_off(tmp_path):
     d = make_dj(tmp_path)
     assert d.inputs.genres == ["chill"] and d.inputs.picks == {}   # no surprise Dark Academia
     assert any("switched off" in e["msg"] for e in d.events)
+
+
+# -- volume changes land between songs ---------------------------------------------------
+
+def test_volume_target_changes_wait_for_the_next_song(dj):
+    started(dj)
+    ip = dj.player.anchor_ip
+    for n in range(1, 4):
+        dj.tick(n)
+    before = dj.player.volumes()[ip]
+    dj.set_inputs({"occupancy_enabled": True, "occupancy": 1.0})  # the room fills up mid-song: a staff/feed input
+    up = dj.targets["volume"]
+    assert up > before
+    # live inputs (not a staff volume move) don't change the playing song's level
+    dj.volume_set = dict(dj.player.volumes())
+    dj.song_volume = before
+    dj.player.set_volume(ip, before); dj.volume_set[ip] = before
+    for n in range(4, 20):
+        dj.tick(n)
+    assert dj.player.volumes()[ip] == before
+    dj.player.next(); dj.tick(20); dj.tick(21)       # next song: moves toward the target, at most 4 steps
+    for n in range(22, 40):
+        dj.tick(n)
+    assert dj.player.volumes()[ip] == min(up, before + 4)
+
+
+def test_staff_volume_change_applies_straight_away(dj):
+    started(dj)
+    ip = dj.player.anchor_ip
+    dj.set_inputs({"auto": False, "manual_volume": 30})
+    assert dj.player.volumes()[ip] == 30 + dj.room_offset(next(s["name"] for s in dj.speakers if s["ip"] == ip))
+    assert dj.song_volume == 30
+
+
+def test_next_pick_follows_the_last_queued_song(dj):
+    started(dj)
+    seen = []
+    orig = dj_mod.brain.pick
+    def spy(*a, **kw):
+        seen.append(kw.get("prev"))
+        return orig(*a, **kw)
+    dj_mod.brain.pick = spy
+    try:
+        last = dj.queued_ids()[-1]
+        out = dj.pick(2)
+    finally:
+        dj_mod.brain.pick = orig
+    assert seen[0] is not None and seen[0].id == last
+    assert seen[1] is out[0]

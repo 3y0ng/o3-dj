@@ -85,6 +85,7 @@
   ],
   "reset_trims_on_daypart": true,
   "manual_volume_max_hours": 3,
+  "volume_step_per_song": 4,
   "auto_volume_other_sources": true,
   "quiet_hours": [[5, 7]],
 
