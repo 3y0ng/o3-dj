@@ -117,6 +117,13 @@
     "analyse_remote": true
   },
 
+  "smooth": {
+    "enabled": true,
+    "tolerance_lu": 4.0,
+    "dip_lu": 8.0,
+    "dip_min_s": 8.0,
+    "protect_s": 25.0
+  },
   "normalise": {
     "enabled": true,
     "target_lufs": -16,

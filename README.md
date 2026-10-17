@@ -56,6 +56,11 @@ from the last song's, so the room filling up, the weather, the time slot or a qu
 The log says each change (`volume: 54 for this song (was 50, target 58)`). Staff moves (volume fader, room faders, auto on/off)
 still apply straight away. While another app plays, auto volume drifts 1 step every ~10 s.
 
+**Loudness mistakes inside a song are evened out.** Whole-song levelling makes songs start level; on top of that, a part far
+louder than the rest of its song is eased down, and a long stretch where a song nearly drops out mid-way is gently lifted,
+so it doesn't come slamming back. Short breaks, choruses and quiet intros/endings are left as made. About 17 of 304 songs
+needed it. Originals are kept (`python -m o3dj.smooth --restore`); `--dry-run` lists what would change (`smooth` in `config.json`).
+
 **Songs flow into each other.** Each pick prefers songs (and styles) close to the last song's energy and tempo, so a somber
 song isn't followed by a very upbeat one; the mix still follows the mood weights over time (`SMOOTH_ENERGY`/`SMOOTH_BPM` in `brain.py`).
 
