@@ -25,6 +25,7 @@ import requests
 from . import brain
 from .analysis import NORM_FORMATS, analyse, apply_gain, measure_lufs, probe_duration
 from .config import CACHE_DIR, DATA, LIBRARY
+from .smooth import Smoother
 from .store import JsonFile
 
 log = logging.getLogger(__name__)
@@ -153,6 +154,7 @@ class Prefetcher:
         self.has_ffmpeg = shutil.which("ffmpeg") is not None
         self.status = "idle"
         self.no_duration = set()
+        self.smoother = Smoother(dj.cfg)
 
     def _analyse(self, track, src):
         self.status = f"analysing {track.title}"
@@ -202,6 +204,22 @@ class Prefetcher:
                                                                      "target": self.cache.target()}
         return True
 
+    def _smooth(self, track):
+        """Even out loudness mistakes inside a library song (o3dj/smooth.py), once, while the speakers aren't
+        reading it (the playing song or the next one)."""
+        busy = lambda: track.id in self.dj.queued_ids()[:2]
+        if not (self.has_ffmpeg and self.smoother.needs(track)) or busy():
+            return False
+        self.status = f"smoothing {track.title}"
+        try:
+            info = self.smoother.smooth(track, safe=lambda: not busy())
+            if info and info.get("changed"):
+                log.info("smoothed %s: cut %.1f dB, lift %.1f dB", track.title, info["max_cut"], info["max_lift"])
+        except Exception as e:
+            log.info("smoothing failed for %s: %s", track.id, e)
+            self.smoother.mark_failed(track, e)
+        return True
+
     def step(self):
         """Do one unit of work. Returns True if something was done."""
         online = self.dj.online
@@ -237,6 +255,9 @@ class Prefetcher:
         if self.has_ffmpeg:
             for t in self.lib.all():
                 if self._normalise(t):
+                    return True
+            for t in self.lib.all():
+                if self._smooth(t):
                     return True
             for t in self.lib.all():
                 if not self.meta.has(t.id) and self.cache.has(t):

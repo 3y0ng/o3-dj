@@ -54,6 +54,10 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
 - `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, levels them
   (loudness normalisation: `Cache.normalise` rewrites a cached file once; `data/normalised.json`), and analyses tempo.
   Never rewrite the playing file or the next one: Sonos pre-loads it and range-reads the file.
+- `o3dj/smooth.py`: evens out loudness mistakes inside library songs (a part far above the song's own level is turned down; a
+  long mid-song drop-out is lifted by one amount; the first/last `protect_s` are never lifted, so intended quiet intros stay).
+  The prefetcher runs it once per file (`data/smoothed.json`), never on the playing/next song; originals in `data/originals/`.
+  `python -m o3dj.smooth --dry-run | --restore | --preview IN OUT`.
 - `o3dj/analysis.py`: ffmpeg + numpy tempo/energy; energy is a percentile across analysed tracks. `track_meta.json` also stores durations.
 - `o3dj/live.py`: LIVE mode feeds (Open-Meteo weather, read-only Supabase occupancy) and staff overrides with expiry.
   `DJ.effective_inputs()` layers override → live → neutral; `brain.py` never knows which mode it's in.
