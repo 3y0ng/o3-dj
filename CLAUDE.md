@@ -41,7 +41,8 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   `Inputs.moods` is off), occupancy `bands` (energy / BPM shift / instrumental; volume still rises with occupancy),
   per-genre `bpm` (+ `bpm_ramp`) + `fallback` (a genre under `min_tracks` hands weight to its fallback), and `new_music` (the mood genres'
   share: 0.4 growing to 1.0 as the slot's library fills; the selection gets the rest; chill is 20% of morning/evening moods),
-  `min_genre_run` (DJ passes `stay_in` to `brain.pick`) and per-genre `volume_offset` (`DJ.genre_volume_offset`). Calibration fits energy
+  `min_genre_run` (DJ passes `stay_in` to `brain.pick`), smooth flow (DJ passes `prev`, the last queued song; `brain.smoothness`),
+  per-song volume (`DJ.song_volume`, moved ≤`volume_step_per_song` at each song start; staff moves apply at once) and per-genre `volume_offset` (`DJ.genre_volume_offset`). Calibration fits energy
   without the band (`calibrate.defaults` energy busy/empty are 0).
 - `suno/styles.json`: approved Suno prompts, BPM ranges, exclude lists and settings per style. Songs are made by hand in
   the Suno web app, titled "O3 <style label> <bpm>", then `tools/suno_import.py add|export|unpack` brings them into

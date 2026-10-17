@@ -334,30 +334,53 @@ def score(t, tgt, energy_of, bpm_of, votes):
     return s * tgt.get("source_weight", {}).get(t.source, 1.0)
 
 
-def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None, stay_in=None):
+SMOOTH_ENERGY = 0.18   # how far the next song's energy may sit from the last one's before it's discouraged
+SMOOTH_BPM = 14        # same for tempo
+
+
+def smoothness(t, prev, energy_of, bpm_of):
+    """How gently `t` follows `prev` (1 = same feel): a somber song shouldn't be followed by a very upbeat one."""
+    if prev is None:
+        return 1.0
+    f = 1.0
+    e0, e1 = energy_of(prev.id), energy_of(t.id)
+    if e0 is not None and e1 is not None:
+        f *= math.exp(-((e1 - e0) ** 2) / (2 * SMOOTH_ENERGY ** 2))
+    b0, b1 = (bpm_of(prev), bpm_of(t)) if bpm_of else (None, None)
+    if b0 and b1:
+        f *= math.exp(-((b1 - b0) ** 2) / (2 * SMOOTH_BPM ** 2))
+    return max(f, 0.02)
+
+
+def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None, stay_in=None, prev=None):
     """Choose a genre by weight, then a track in it by energy/tempo match x votes.
 
     tracks_by_genre: {genre: [Track]}; energy_of(id) -> float|None; bpm_of(track) -> float|None;
     votes: {id: {...}}; recent: set of ids to avoid; available(track) -> bool.
     stay_in: a genre to try first (so a genre plays at least min_genre_run songs in a row), if it's still wanted
     and has a song that hasn't played recently (a song is never repeated just to make a pair).
+    prev: the song this one follows. Songs (and genres) close to it in energy and tempo are preferred, so the
+    music flows instead of jumping from somber to upbeat.
     """
     genres = [g for g, w in tgt["weights"].items() if w > 0 and tracks_by_genre.get(g)]
     for relax in (False, True):
-        pool_g = list(genres)
-        while pool_g:
-            if stay_in in pool_g:
-                g = stay_in
-            else:
-                g = rng.choices(pool_g, weights=[tgt["weights"][x] for x in pool_g])[0]
-            cands, scores = [], []
-            for t in tracks_by_genre[g]:
-                v = votes.get(t.id)
-                if banned(v) or not available(t) or (not relax and t.id in recent):
-                    continue
-                cands.append(t)
-                scores.append(score(t, tgt, energy_of, bpm_of, votes))
-            if cands:
-                return rng.choices(cands, weights=scores)[0]
-            pool_g.remove(g)
+        cands_by = {}
+        for g in genres:
+            cs = [t for t in tracks_by_genre[g]
+                  if not banned(votes.get(t.id)) and available(t) and (relax or t.id not in recent)]
+            if cs:
+                cands_by[g] = cs
+        if not cands_by:
+            continue
+        smooth = {g: [smoothness(t, prev, energy_of, bpm_of) for t in cs] for g, cs in cands_by.items()}
+        if stay_in in cands_by:
+            g = stay_in
+        else:
+            gs = list(cands_by)
+            # a genre with nothing close to the last song is still possible, just less likely
+            ws = [tgt["weights"][x] * (0.25 + 0.75 * max(smooth[x])) for x in gs]
+            g = rng.choices(gs, weights=ws)[0]
+        cs = cands_by[g]
+        scores = [score(t, tgt, energy_of, bpm_of, votes) * f for t, f in zip(cs, smooth[g])]
+        return rng.choices(cs, weights=scores)[0]
     return None

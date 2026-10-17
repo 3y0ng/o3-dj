@@ -51,6 +51,14 @@ Song names too long for the screen scroll across it, pausing at the start of eac
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
 
+**Auto volume changes between songs.** Each song gets one level when it starts, moving at most `volume_step_per_song` (4)
+from the last song's, so the room filling up, the weather, the time slot or a quieter style never shift the volume mid-song.
+The log says each change (`volume: 54 for this song (was 50, target 58)`). Staff moves (volume fader, room faders, auto on/off)
+still apply straight away. While another app plays, auto volume drifts 1 step every ~10 s.
+
+**Songs flow into each other.** Each pick prefers songs (and styles) close to the last song's energy and tempo, so a somber
+song isn't followed by a very upbeat one; the mix still follows the mood weights over time (`SMOOTH_ENERGY`/`SMOOTH_BPM` in `brain.py`).
+
 **Hand-set volume expires.** Moving the volume (or changing it in the Sonos app) holds that level until the next time slot or `manual_volume_max_hours` (3 h), whichever comes first, then auto volume takes over again. Auto volume also keeps the rooms at the scheduled level while another app (staff Spotify) is playing (`auto_volume_other_sources`); a change made in the Sonos app is held the same way.
 
 ## Calibrating a venue (once, about 5 minutes)

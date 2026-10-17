@@ -257,3 +257,30 @@ def test_staff_genre_pick_gets_its_share_with_moods_on():
     t = brain.targets(brain.Inputs(genres=["chill", "asian"], picks={"asian": "afternoon"}), CFG, 15, GENRES, counts=full)
     assert abs(t["weights"]["asian"] - CFG["moods"]["pick_share"]) < 0.01
     assert t["mood_until"] == 17 and any("staff picks" in r for r in t["reasons"])
+
+
+def test_pick_flows_from_the_last_song():
+    """A somber song shouldn't be followed by a very upbeat one: genres and songs near the last one's feel win."""
+    by = {"dark": [Track(id=f"d:{i}", title=str(i), genre="dark", source="test", url="x") for i in range(20)],
+          "upbeat": [Track(id=f"u:{i}", title=str(i), genre="upbeat", source="test", url="x") for i in range(20)]}
+    energy = {**{f"d:{i}": 0.1 + i * 0.01 for i in range(20)}, **{f"u:{i}": 0.75 + i * 0.01 for i in range(20)}}
+    t = {"weights": {"dark": 1.0, "upbeat": 1.0}, "energy": 0.5}
+    prev = by["dark"][0]
+    rng = random.Random(3)
+    picks = [brain.pick(by, t, energy.get, {}, set(), lambda _: True, rng, prev=prev) for _ in range(400)]
+    assert Counter(p.genre for p in picks)["dark"] > 300
+    free = [brain.pick(by, t, energy.get, {}, set(), lambda _: True, rng) for _ in range(400)]
+    assert 120 < Counter(p.genre for p in free)["dark"] < 280  # without a previous song, weights alone decide
+    # a big tempo jump is discouraged too
+    tracks = _suno(40, bpm=lambda i: 70 + i * 2)  # 70..148
+    t2 = {"weights": {"bossa_house": 1.0}, "energy": 0.5}
+    picks = [brain.pick({"bossa_house": tracks}, t2, lambda _: None, {}, set(), lambda _: True, rng,
+                        bpm_of=lambda tr: tr.bpm, prev=tracks[0]) for _ in range(300)]
+    assert sum(p.bpm for p in picks) / len(picks) < 95
+
+
+def test_smoothness_never_rules_a_song_out():
+    a = Track(id="a", title="a", genre="g", source="test", url="x")
+    b = Track(id="b", title="b", genre="g", source="test", url="x")
+    assert brain.smoothness(b, a, {"a": 0.0, "b": 1.0}.get, None) >= 0.02
+    assert brain.smoothness(b, None, {"a": 0.0, "b": 1.0}.get, None) == 1.0

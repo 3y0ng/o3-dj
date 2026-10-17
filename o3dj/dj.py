@@ -89,6 +89,7 @@ class DJ:
         self.last_skip = 0.0
         self.main_fails = 0       # ticks in a row the main room hasn't answered (see safe_tick)
         self.volume_set = {}      # ip -> the volume the DJ last set or saw, to notice changes made in the Sonos app
+        self.song_volume = None   # the level for the song that's playing (changes between songs; see _song_volume)
         self._last_snapshot = None
         self.dj_moved = 0.0       # when the DJ itself last changed track (skip, jump, start), to tell its moves from others'
         self.last_daypart = None
@@ -273,15 +274,18 @@ class DJ:
         by_genre = {g: self.library.in_genre(g) for g in tgt["weights"]}
         recent = {h["id"] for h in list(self.history)[-60:]} | set(self.queued_ids()) | set(exclude)
         genres = self._recent_genres()
+        q = self.queued_ids()
+        prev = self.library.get(q[-1]) if q else None  # the song the next pick will follow
         out = []
         for _ in range(n):
             t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available, bpm_of=self.bpm_of,
-                           stay_in=self._stay_in(genres))
+                           stay_in=self._stay_in(genres), prev=prev)
             if not t:
                 break
             recent.add(t.id)
             genres.append(t.genre)
             out.append(t)
+            prev = t
         if len(out) < n:
             self.event("no playable tracks for this mood" if not out else "running low on tracks")
         return out
@@ -916,6 +920,26 @@ class DJ:
 
     APP_CHANGE = 3  # a jump this big on the main room that the DJ didn't make = someone used the Sonos app
 
+    def _song_volume(self, live, max_step):
+        """The level for the song that's playing: set when a song starts (moving at most volume_step_per_song from
+        the last song's), so occupancy/weather/style changes land between songs instead of mid-song. A staff change
+        (max_step >= 100: slider, room fader, button) applies straight away."""
+        if max_step >= 100 or self.song_volume is None:
+            self.song_volume = live
+        return self.song_volume
+
+    def _next_song_volume(self):
+        """A new song started: move toward the current target, gently."""
+        if self.song_volume is None:
+            return
+        offset = self.genre_volume_offset() if self.inputs.auto else 0
+        live = self.targets["volume"] + offset
+        step = self.cfg.get("volume_step_per_song", 4)
+        new = max(self.song_volume - step, min(self.song_volume + step, live))
+        if new != self.song_volume:
+            log.info("volume: %d for this song (was %d, target %d)", new, self.song_volume, live)
+            self.song_volume = new
+
     def _apply_volume(self, max_step=2, other_source=False):
         names = {s["ip"]: s["name"] for s in self.speakers}
         vols = self.player.volumes()
@@ -927,10 +951,12 @@ class DJ:
             self.inputs.auto, self.inputs.manual_volume, self.inputs.manual_since = False, int(level), time.time()
             self.save()
             self.targets = self.compute()
+            self.song_volume = self.targets["volume"]
             self.event(f"volume set to {vols[main]} in the Sonos app - holding it until the next time slot "
                        f"(max {self.cfg.get('manual_volume_max_hours', 3):g} h)")
         offset = self.genre_volume_offset() if self.inputs.auto and not other_source else 0
-        target = self.targets["volume"] + offset
+        live = self.targets["volume"] + offset
+        target = live if other_source else self._song_volume(live, max_step)
         for ip, cur in vols.items():
             want = target + self.room_offset(names.get(ip, ""))
             want = max(self.cfg["min_volume"], min(self.cfg["max_volume"], want))
@@ -1015,6 +1041,7 @@ class DJ:
                 self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
             self._note_early_end(self.now_id)
             self._set_now(cur)
+            self._next_song_volume()
             self._count_play()
             if cur in self.skip_on_start:
                 self.skip_on_start.discard(cur)
@@ -1082,7 +1109,8 @@ class DJ:
                 # Another app (staff Spotify) is playing: keep the room at the scheduled level anyway.
                 if self.cfg.get("auto_volume_other_sources", True) and st["state"] == "PLAYING" and st.get("uri") \
                         and not self.fading and not self.paused:
-                    self._apply_volume(other_source=True)
+                    if n % 5 == 0:  # no song changes to wait for: drift 1 step every ~10 s
+                        self._apply_volume(max_step=1, other_source=True)
                 elif n % 5 == 0:
                     self.volumes = self.player.volumes()
                 return
