@@ -755,7 +755,11 @@ class DJ:
     def speaker_action(self, action, ip=None, value=None):
         with self.lock:
             p = self.player
-            rooms = {s["ip"]: s for s in p.speakers()}
+            # The room list from the last tick is fresh enough to act on; asking every room again (two calls each,
+            # 6 s per slow room) is what made the switches feel stuck. Mute and the room fader don't regroup anything.
+            rooms = {s["ip"]: s for s in self.speakers}
+            if ip is not None and ip not in rooms:
+                rooms = {s["ip"]: s for s in p.speakers()}
             if ip is not None and ip not in rooms and p.answers(ip):  # discovery missed it, but it's there
                 rooms = {s["ip"]: s for s in p.speakers()}
             if ip is not None and ip not in rooms:
@@ -776,12 +780,15 @@ class DJ:
                 self._set_room_offset(rooms[ip]["name"], value)
             elif action == "mute":
                 p.set_mute(ip, bool(value))
+                self.speakers = [dict(s, muted=bool(value)) if s["ip"] == ip else s for s in self.speakers]
                 self.event(f"{rooms[ip]['name']} {'muted' if value else 'unmuted'}")
+                return
             elif action == "discover":
                 p.discover()
             else:
                 raise ValueError(f"unknown action {action!r}")
-            self.speakers = p.speakers()
+            if action != "offset":
+                self.speakers = p.speakers()
             if self.running:
                 self._apply_volume(max_step=100)
                 if action in ("join", "party", "main"):

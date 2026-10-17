@@ -516,6 +516,7 @@ def test_room_offset_from_controller_overrides_config(tmp_path):
 def test_mute_keeps_room_in_group_and_leaves_volume_alone(dj):
     started(dj)
     ip = dj.player.anchor_ip
+    dj.player.set_volume(ip, dj.targets["volume"]); dj.volume_set[ip] = dj.targets["volume"]
     dj.speaker_action("mute", ip, True)
     room = next(s for s in dj.speakers if s["ip"] == ip)
     assert room["muted"] and room["in_group"] and room["coordinator"]

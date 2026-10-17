@@ -143,10 +143,18 @@ def create_app(dj):
 
     @app.post("/api/speakers")
     def speakers():
+        """Room switches run on the action worker: a quick one answers with the new view (or its error); one stuck
+        behind a slow speaker answers after a second and finishes in the background (errors go to the event log)."""
         body = request.get_json(force=True)
+        fut = worker.submit(dj.speaker_action, body.get("action"), body.get("ip"), body.get("value"))
         try:
-            dj.speaker_action(body.get("action"), body.get("ip"), body.get("value"))
-        except Exception as e:  # bad input, or the speakers refused (e.g. a regrouping didn't take)
+            fut.result(timeout=1.0)
+        except FutureTimeout:
+            def report(f):
+                if f.exception():  # bad input, or the speakers refused (e.g. a regrouping didn't take)
+                    dj.event(f"error: {str(f.exception())[:80]}")
+            fut.add_done_callback(report)
+        except Exception as e:
             return jsonify({"error": str(e)[:200]}), 400
         return ok()
 
