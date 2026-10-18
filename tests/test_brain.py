@@ -33,18 +33,22 @@ def test_hour_override_beats_clock():
     assert tgt(14, hour_override=22)["energy"] == tgt(22)["energy"]
 
 
-def test_rain_boosts_jazz_when_selected():
-    dry = tgt(14, genres=["chill", "jazzy_cafe"])
-    wet = tgt(14, genres=["chill", "jazzy_cafe"], weather="rain")
-    assert wet["weights"]["jazzy_cafe"] > dry["weights"]["jazzy_cafe"]
+def test_rain_boosts_chill_when_selected():
+    dry = tgt(14, genres=["chill", "asian"], moods=False)
+    wet = tgt(14, genres=["chill", "asian"], weather="rain", moods=False)
+    assert wet["weights"]["chill"] > dry["weights"]["chill"]
     assert wet["energy"] < dry["energy"]
 
 
-def test_rain_pulls_in_jazz_even_when_unselected():
-    wet = tgt(14, genres=["chill"], weather="rain")
-    assert wet["weights"]["jazzy_cafe"] > 0
-    # cloudy alone doesn't pull it in (the afternoon mix may, by design, so check with moods off)
-    assert "jazzy_cafe" not in tgt(14, genres=["chill"], weather="cloudy", moods=False)["weights"]
+def test_rainy_evening_leans_on_chill():  # Jazzy Cafe used to fill rainy early evenings
+    assert tgt(18, weather="rain")["weights"]["chill"] > tgt(18)["weights"]["chill"]
+
+
+def test_jazzy_cafe_is_gone():
+    assert "jazzy_cafe" not in CFG["genres"]
+    for h in range(24):
+        for w in ("clear", "cloudy", "rain"):
+            assert "jazzy_cafe" not in tgt(h, weather=w)["weights"]
 
 
 def test_occupancy_only_counts_when_enabled():
@@ -83,8 +87,8 @@ def test_moods_follow_time_and_weather():
         w = {g: v for g, v in tgt(hour, weather=weather)["weights"].items() if CFG["genres"].get(g, {}).get("fallback")}
         return max(w, key=w.get)
     assert top(9, "clear") == "bossa_house"
-    clear_afternoon = tgt(15)["weights"]  # Ghibli Lofi leads; Electronic Lofi's share went to the Jazzy Cafe playlist
-    assert clear_afternoon["lofi_indie"] > clear_afternoon["jazzy_cafe"] > clear_afternoon["whimsy_fantasy"] > 0
+    clear_afternoon = tgt(15)["weights"]  # Ghibli Lofi leads; Jazzy Cafe's share went to Ghibli Lofi and Chill
+    assert clear_afternoon["lofi_indie"] > clear_afternoon["chill"] > 0 and clear_afternoon["whimsy_fantasy"] > 0
     assert "electronic_lofi" not in clear_afternoon
     assert top(15, "cloudy") == "lofi_indie"  # Ghibli Lofi just leads Whimsy Fantasy now
     assert top(19, "rain") == "jazzhop" and top(21, "rain") == "dark_academia"  # Dark Academia waits for 8pm
@@ -98,7 +102,7 @@ def test_new_music_share_grows_with_the_library():
     def new_share(counts):
         w = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts=counts)["weights"]
         return sum(v for g, v in w.items() if CFG["genres"].get(g, {}).get("fallback"))
-    base = {"chill": 400, "jazzy_cafe": 300, "asian": 200}
+    base = {"chill": 400, "asian": 200}
     full = CFG["new_music"]["full_at_tracks"]
     start = new_share({**base, "bossa_house": 8, "jazzhop": 8})  # just past min_tracks, so no fallback
     half = new_share({**base, "bossa_house": full // 2, "jazzhop": full // 2})
@@ -113,7 +117,7 @@ def test_new_music_share_grows_with_the_library():
 
 
 def test_a_genre_staff_pick_plays_even_with_few_songs():
-    counts = {"chill": 400, "jazzy_cafe": 300, "asian": 200, "dark_academia": 1}
+    counts = {"chill": 400, "asian": 200, "dark_academia": 1}
     t = brain.targets(brain.Inputs(genres=["dark_academia"], moods=False), CFG, 15, GENRES, counts=counts)
     assert t["weights"] == {"dark_academia": 1.0}
     # with auto on, the slot's own short genres still lean on Chillify, but the pick keeps its weight
@@ -128,9 +132,9 @@ def test_moods_off_keeps_staff_selection():
 def test_short_genre_hands_weight_to_fallback():
     full = {g: 50 for g in GENRES}
     t = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts=full)
-    assert "jazzy_cafe" not in t["weights"] and not any("few tracks" in r for r in t["reasons"])
+    assert not any("few tracks" in r for r in t["reasons"])
     empty = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts={**full, "bossa_house": 0})
-    assert "bossa_house" not in empty["weights"] and empty["weights"]["jazzy_cafe"] > 0
+    assert "bossa_house" not in empty["weights"] and empty["weights"]["chill"] > t["weights"]["chill"]
     half = brain.targets(brain.Inputs(), CFG, 9, GENRES, counts={**full, "bossa_house": 4})
     assert 0 < half["weights"]["bossa_house"] < t["weights"]["bossa_house"]
 
@@ -163,11 +167,11 @@ def _tracks():
 def test_pick_follows_genre_weights_and_energy():
     by = _tracks()
     energy = {t.id: i / 39 for g in by for i, t in enumerate(by[g])}
-    t = tgt(14, genres=["chill", "jazzy_cafe"], weather="rain")
+    t = tgt(14, genres=["chill", "asian"], weather="rain", moods=False)
     rng = random.Random(1)
     picks = [brain.pick(by, t, energy.get, {}, set(), lambda _: True, rng) for _ in range(600)]
     genres = Counter(p.genre for p in picks)
-    assert genres["jazzy_cafe"] > genres["chill"] and genres["asian"] == 0
+    assert genres["chill"] > genres["asian"] > 0 and genres["jazzhop"] == 0
     mean_e = sum(energy[p.id] for p in picks) / len(picks)
     assert abs(mean_e - t["energy"]) < 0.12
 

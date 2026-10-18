@@ -97,6 +97,10 @@ class DJ:
         self.status = {}
         self.speakers = []
         self.volumes = {}
+        gone = [g for g in list(self.inputs.genres) + list(self.inputs.picks) if g not in cfg["genres"]]
+        if gone:  # a genre removed from config.json (e.g. Jazzy Cafe): its key can't stay lit
+            self.inputs.genres = [g for g in self.inputs.genres if g in cfg["genres"]] or list(cfg["default_genres"])
+            self.inputs.picks = {g: v for g, v in self.inputs.picks.items() if g in cfg["genres"]}
         self.targets = self.compute()
         if "picks" not in saved and self.inputs.moods:
             # Before picks existed, keys lit with moods on did nothing once the library was full (e.g. an old tap on

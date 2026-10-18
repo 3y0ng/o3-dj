@@ -4,7 +4,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const GENRE_COLORS = {
-  chill: "#3d8bff", jazzy_cafe: "#ff6b2c", asian: "#2fd37f",
+  chill: "#3d8bff", asian: "#2fd37f",
   // timeslot styles, warm morning to cool night
   bossa_house: "#ffc83d", jazzhop: "#e0a458", lofi_indie: "#5ec8c8", electronic_lofi: "#c77dff",
   whimsy_fantasy: "#7a9e7e", indie_lofi_fantasy: "#ff8fa3", dark_academia: "#8a5a44", ambient_dream: "#6c7bd9",
