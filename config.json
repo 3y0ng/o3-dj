@@ -11,15 +11,14 @@
 
   "genres": {
     "chill":      { "label": "Chill",      "sources": { "chillify": ["chill"] } },
-    "jazzy_cafe": { "label": "Jazzy Cafe", "sources": { "chillify": ["jazzy", "cafe"] } },
     "asian":      { "label": "Asian",      "sources": { "chillify": ["asian"] } },
 
-    "bossa_house":        { "label": "Bossa Nova",       "bpm": [120, 140], "bpm_ramp": true, "fallback": "jazzy_cafe" },
+    "bossa_house":        { "label": "Bossa Nova",       "bpm": [120, 140], "bpm_ramp": true, "fallback": "chill" },
     "jazzhop":            { "label": "Jazz-hop",         "bpm": [88, 96],   "fallback": "asian" },
     "lofi_indie":         { "label": "Ghibli Lofi",       "bpm": [86, 94],   "fallback": "chill" },
     "whimsy_fantasy":     { "label": "Whimsy Fantasy",   "bpm": [66, 76],   "fallback": "chill" },
     "indie_lofi_fantasy": { "label": "Evening Lofi",     "bpm": [68, 80],   "fallback": "chill" },
-    "dark_academia":      { "label": "Dark Academia",    "bpm": [60, 72],   "fallback": "jazzy_cafe", "volume_offset": -3 },
+    "dark_academia":      { "label": "Dark Academia",    "bpm": [60, 72],   "fallback": "chill", "volume_offset": -3 },
     "ambient_dream":      { "label": "Ambient Dream",    "bpm": [55, 68],   "fallback": "chill", "volume_offset": -3 },
     "electronic_lofi":    { "label": "Electronic Lofi",  "bpm": [106, 114], "fallback": "chill" }
   },
@@ -38,17 +37,17 @@
     "morning": {
       "clear":  { "bossa_house": 2.0, "jazzhop": 1.0, "chill": 0.75 },
       "cloudy": { "bossa_house": 2.0, "jazzhop": 1.0, "chill": 0.75 },
-      "rain":   { "jazzhop": 2.0, "jazzy_cafe": 1.0, "chill": 0.75 }
+      "rain":   { "jazzhop": 2.0, "lofi_indie": 0.5, "chill": 1.25 }
     },
     "afternoon": {
-      "clear":  { "lofi_indie": 1.375, "jazzy_cafe": 0.75, "whimsy_fantasy": 0.375 },
-      "cloudy": { "lofi_indie": 1.15, "jazzy_cafe": 0.25, "whimsy_fantasy": 1.1 },
-      "rain":   { "jazzhop": 1.05, "jazzy_cafe": 0.575, "whimsy_fantasy": 0.875 }
+      "clear":  { "lofi_indie": 1.75, "chill": 0.375, "whimsy_fantasy": 0.375 },
+      "cloudy": { "lofi_indie": 1.275, "chill": 0.125, "whimsy_fantasy": 1.1 },
+      "rain":   { "jazzhop": 1.05, "lofi_indie": 0.3, "chill": 0.3, "whimsy_fantasy": 0.875 }
     },
     "early_evening": {
       "clear":  { "lofi_indie": 2.0, "indie_lofi_fantasy": 0.5, "chill": 0.625 },
-      "cloudy": { "lofi_indie": 1.5, "indie_lofi_fantasy": 0.5, "jazzy_cafe": 0.5, "chill": 0.625 },
-      "rain":   { "jazzy_cafe": 1.5, "jazzhop": 1.0, "chill": 0.625 }
+      "cloudy": { "lofi_indie": 1.75, "indie_lofi_fantasy": 0.5, "chill": 0.875 },
+      "rain":   { "jazzhop": 1.0, "lofi_indie": 0.75, "chill": 1.375 }
     },
     "evening": {
       "clear":  { "indie_lofi_fantasy": 2.0, "lofi_indie": 0.5, "chill": 0.625 },
@@ -91,8 +90,8 @@
 
   "weather": {
     "clear":  { "energy": 0.00,  "volume": 0,  "boost": {} },
-    "cloudy": { "energy": -0.03, "volume": 0,  "boost": { "jazzy_cafe": 1.4 } },
-    "rain":   { "energy": -0.08, "volume": -2, "boost": { "jazzy_cafe": 2.2 } }
+    "cloudy": { "energy": -0.03, "volume": 0,  "boost": {} },
+    "rain":   { "energy": -0.08, "volume": -2, "boost": { "chill": 1.5 } }
   },
   "unselected_boost_base": 0.35,
 

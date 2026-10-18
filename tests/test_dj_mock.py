@@ -139,7 +139,7 @@ def test_skip_without_known_length_falls_back_to_next(dj):
 
 
 def test_each_genre_plays_at_least_twice_in_a_row(dj):
-    dj.set_inputs({"genres": ["chill", "jazzy_cafe", "asian"], "moods": False})
+    dj.set_inputs({"genres": ["chill", "asian"], "moods": False})
     started(dj)
     seq = []
     for i in range(20):  # fewer than each genre's 20 songs: a genre with no fresh song left ends its run early
@@ -955,3 +955,11 @@ def test_next_pick_follows_the_last_queued_song(dj):
         dj_mod.brain.pick = orig
     assert seen[0] is not None and seen[0].id == last
     assert seen[1] is out[0]
+
+
+def test_removed_genre_is_switched_off_on_start(tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps({"inputs": {"genres": ["jazzy_cafe", "chill"], "moods": True,
+                                                                "picks": {"jazzy_cafe": 1.0}}}))
+    d = make_dj(tmp_path)
+    assert d.inputs.genres == ["chill"] and d.inputs.picks == {}
+    assert "jazzy_cafe" not in d.targets["weights"]
