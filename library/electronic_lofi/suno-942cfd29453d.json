@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Electronic Lofi 114 A",
+ "genre": "electronic_lofi",
+ "style": "electronic_lofi",
+ "bpm": 114,
+ "vocals": false,
+ "prompt": "electronic soul deep house, steady deep-house pulse, analog synth chorus drifting softly through warm tape haze, mellow electric bass under a hypnotic lo-fi drum machine and soft, nostalgic synth layers, 114 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.8,
+ "hash": "942cfd29453d",
+ "imported_from": "O3 Electronic Lofi 114 A.mp3",
+ "created": "2026-10-10T15:18:31+00:00"
+}
