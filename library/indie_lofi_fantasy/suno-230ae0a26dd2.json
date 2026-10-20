@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Evening Lofi 70 E",
+ "genre": "indie_lofi_fantasy",
+ "style": "indie_lofi_fantasy",
+ "bpm": 70,
+ "vocals": false,
+ "prompt": "chill evening lofi, cosy cafe, 70 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.0,
+ "hash": "230ae0a26dd2",
+ "imported_from": "O3 Evening Lofi 70 E.mp3",
+ "created": "2026-10-10T15:18:46+00:00"
+}
