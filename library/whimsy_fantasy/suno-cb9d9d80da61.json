@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Whimsy Fantasy 68 F",
+ "genre": "whimsy_fantasy",
+ "style": "whimsy_fantasy",
+ "bpm": 68,
+ "vocals": false,
+ "prompt": "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe, 68 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.1,
+ "hash": "cb9d9d80da61",
+ "imported_from": "O3 Whimsy Fantasy 68 F.mp3",
+ "created": "2026-10-10T15:20:29+00:00"
+}
