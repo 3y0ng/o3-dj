@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Jazz-hop 93 A",
+ "genre": "jazzhop",
+ "style": "jazzhop",
+ "bpm": 93,
+ "vocals": false,
+ "prompt": "upbeat japanese jazz-hop, chill, cosy cafe, 93 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": -1.8,
+ "hash": "6ef7c96ed4ba",
+ "imported_from": "O3 Jazz-hop 93 A.mp3",
+ "created": "2026-10-10T12:25:11+00:00"
+}

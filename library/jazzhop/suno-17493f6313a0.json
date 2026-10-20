@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Jazz-hop 88 D",
+ "genre": "jazzhop",
+ "style": "jazzhop",
+ "bpm": 88,
+ "vocals": false,
+ "prompt": "upbeat japanese jazz-hop, chill, cosy cafe, 88 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": -1.2,
+ "hash": "17493f6313a0",
+ "imported_from": "O3 Jazz-hop 88 D.mp3",
+ "created": "2026-10-10T13:14:53+00:00"
+}
