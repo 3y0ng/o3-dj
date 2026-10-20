@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Ghibli Lofi 91 A",
+ "genre": "lofi_indie",
+ "style": "lofi_indie",
+ "bpm": 91,
+ "vocals": false,
+ "prompt": "upbeat ghibli lofi, bouncy beats, cool, cosy cafe, 91 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.2,
+ "hash": "a83664f0c287",
+ "imported_from": "O3 Ghibli Lofi 91 A.mp3",
+ "created": "2026-10-10T15:19:30+00:00"
+}

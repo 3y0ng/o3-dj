@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Ghibli Lofi 93 D",
+ "genre": "lofi_indie",
+ "style": "lofi_indie",
+ "bpm": 93,
+ "vocals": false,
+ "prompt": "upbeat ghibli lofi, bouncy beats, cool, cosy cafe, 93 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.0,
+ "hash": "3bbeb9c02f60",
+ "imported_from": "O3 Ghibli Lofi 93 D.mp3",
+ "created": "2026-10-10T15:19:44+00:00"
+}
