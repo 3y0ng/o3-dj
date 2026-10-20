@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Bossa Nova 122 B",
+ "genre": "bossa_house",
+ "style": "bossa_house",
+ "bpm": 122,
+ "vocals": false,
+ "prompt": "classic 60s bossa nova, chill, cosy cafe, 122 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": -2.1,
+ "hash": "f846d218d448",
+ "imported_from": "O3 Bossa Nova 122 B.mp3",
+ "created": "2026-10-10T12:22:25+00:00"
+}

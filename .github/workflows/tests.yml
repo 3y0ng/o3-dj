@@ -11,6 +11,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:  # the tests don't need the songs (library/<genre>/, ~1.8 GB)
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/library/*/
+          sparse-checkout-cone-mode: false
 
       - uses: actions/setup-python@v5
         with:

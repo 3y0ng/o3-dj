@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Whimsy Fantasy 74 C",
+ "genre": "whimsy_fantasy",
+ "style": "whimsy_fantasy",
+ "bpm": 74,
+ "vocals": false,
+ "prompt": "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe, 74 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": -1.1,
+ "hash": "928f78da4af7",
+ "imported_from": "O3 Whimsy Fantasy 74 C.mp3",
+ "created": "2026-10-10T13:15:34+00:00"
+}

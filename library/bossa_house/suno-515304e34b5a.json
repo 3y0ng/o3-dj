@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Bossa Nova 124",
+ "genre": "bossa_house",
+ "style": "bossa_house",
+ "bpm": 124,
+ "vocals": false,
+ "prompt": "classic 60s bossa nova, chill, cosy cafe, 124 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": 0.0,
+ "hash": "515304e34b5a",
+ "imported_from": "O3 Bossa Nova 124.m4a",
+ "created": "2026-10-05T13:28:15+00:00"
+}

@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "Cloudy Afternoon Soul",
+ "genre": "electronic_lofi",
+ "style": "electronic_lofi",
+ "bpm": 110,
+ "vocals": false,
+ "prompt": "electronic soul, deep house, 110 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": 0.0,
+ "hash": "604bb6d1738c",
+ "imported_from": "Cloudy Afternoon Soul.m4a",
+ "created": "2026-10-05T13:57:49+00:00"
+}

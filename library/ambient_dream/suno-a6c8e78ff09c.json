@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Ambient Dream 60 A",
+ "genre": "ambient_dream",
+ "style": "ambient_dream",
+ "bpm": 60,
+ "vocals": false,
+ "prompt": "ambient dreamscape, calm, cosy cafe, 60 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": 0.0,
+ "hash": "a6c8e78ff09c",
+ "imported_from": "O3 Ambient Dream 60 A.m4a",
+ "created": "2026-10-07T07:26:09+00:00"
+}

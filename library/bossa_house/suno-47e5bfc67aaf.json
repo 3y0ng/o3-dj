@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Bossa Nova 127 A",
+ "genre": "bossa_house",
+ "style": "bossa_house",
+ "bpm": 127,
+ "vocals": false,
+ "prompt": "classic 60s bossa nova, chill, cosy cafe, 127 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.7,
+ "hash": "47e5bfc67aaf",
+ "imported_from": "O3 Bossa Nova 127 A.mp3",
+ "created": "2026-10-10T15:17:46+00:00"
+}
