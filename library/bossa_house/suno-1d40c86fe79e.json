@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Bossa Nova 136 D",
+ "genre": "bossa_house",
+ "style": "bossa_house",
+ "bpm": 136,
+ "vocals": false,
+ "prompt": "classic 60s bossa nova, chill, cosy cafe, 136 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": -1.8,
+ "hash": "1d40c86fe79e",
+ "imported_from": "O3 Bossa Nova 136 D.mp3",
+ "created": "2026-10-10T13:13:03+00:00"
+}

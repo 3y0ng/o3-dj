@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Bossa Nova 131 A",
+ "genre": "bossa_house",
+ "style": "bossa_house",
+ "bpm": 131,
+ "vocals": false,
+ "prompt": "classic 60s bossa nova, chill, cosy cafe, 131 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.7,
+ "hash": "73c374eeb127",
+ "imported_from": "O3 Bossa Nova 131 A.mp3",
+ "created": "2026-10-10T15:17:51+00:00"
+}
