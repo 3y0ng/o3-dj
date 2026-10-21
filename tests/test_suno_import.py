@@ -65,8 +65,8 @@ def test_export_and_unpack_move_the_library(tmp_path):
     assert si.export(z, lib, log=quiet) == 2
 
     other.mkdir(parents=True)
-    assert si.unpack(z, other, log=quiet) == 2
-    assert si.unpack(z, other, log=quiet) == 0  # already there
+    assert si.unpack(z, other, log=quiet, rejected=[]) == 2
+    assert si.unpack(z, other, log=quiet, rejected=[]) == 0  # already there
     assert sorted(t.genre for t in FolderSource(other).load()) == ["dark_academia", "indie_lofi_fantasy"]
 
 
@@ -78,7 +78,7 @@ def test_unpack_ignores_paths_outside_the_library(tmp_path):
         f.writestr("dark_academia/notes.txt", b"z")
     lib = tmp_path / "library"
     lib.mkdir()
-    assert si.unpack(z, lib, log=quiet) == 0
+    assert si.unpack(z, lib, log=quiet, rejected=[]) == 0
     assert not any(lib.rglob("*")) and not (tmp_path / "evil").exists()
 
 
@@ -103,3 +103,22 @@ def test_records_sunos_rewrite_and_the_prompt_it_came_from(tmp_path, monkeypatch
     assert side["suno_style"] == rewrite
     assert side["prompt"].startswith("ghibli lofi touch, late-night organic deep house")  # the second of its prompts
     assert si.sent_prompt(STYLES["styles"]["jazzhop"], "") == STYLES["styles"]["jazzhop"]["prompt"]
+
+
+def test_unpack_leaves_out_rejected_songs(tmp_path):
+    z = tmp_path / "old.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("whimsy_fantasy/suno-aaa.mp3", b"rejected by name")
+        f.writestr("whimsy_fantasy/suno-aaa.json", json.dumps({"hash": "h1"}))
+        f.writestr("whimsy_fantasy/suno-bbb.mp3", b"rejected by hash, under another name")
+        f.writestr("whimsy_fantasy/suno-bbb.json", json.dumps({"hash": "h2"}))
+        f.writestr("whimsy_fantasy/suno-ccc.mp3", b"fine")
+        f.writestr("whimsy_fantasy/suno-ccc.json", json.dumps({"hash": "h3"}))
+    rej = tmp_path / "o3-dj-rejected" / "whimsy_fantasy"
+    rej.mkdir(parents=True)
+    (rej / "suno-aaa.mp3").write_bytes(b"x")
+    (rej / "suno-zzz.json").write_text(json.dumps({"hash": "h2"}))
+    lib = tmp_path / "library"
+    lib.mkdir()
+    assert si.unpack(z, lib, log=quiet, rejected=[tmp_path / "o3-dj-rejected", tmp_path / "missing"]) == 1
+    assert sorted(p.name for p in lib.rglob("*")) == ["suno-ccc.json", "suno-ccc.mp3", "whimsy_fantasy"]
