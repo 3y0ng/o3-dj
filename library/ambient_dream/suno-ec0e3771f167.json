@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Ambient Dream 65 B",
+ "genre": "ambient_dream",
+ "style": "ambient_dream",
+ "bpm": 65,
+ "vocals": false,
+ "prompt": "ambient dreamscape, calm, cosy cafe, 65 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.2,
+ "hash": "ec0e3771f167",
+ "imported_from": "O3 Ambient Dream 65 B.mp3",
+ "created": "2026-10-10T15:17:24+00:00"
+}

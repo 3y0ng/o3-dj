@@ -33,21 +33,38 @@ to move it, and double-tap to reset it.
 | **orange fader** time | simulates a time of day (bottom = midnight) so you can test evening vs afternoon. **clock** key or a double-click returns to the real time. |
 
 Fader trims (volume/energy) reset automatically when the real clock moves into the next part of the day.
-| **genre** keys | two rows: the playlists (chill, jazzy cafe, asian), then the new music in the order it plays through the day. Pick several. The counts show cached/total tracks. **auto** (on by default) adds the genres that suit the time of day and weather (`moods` in config.json) on top of your picks; switch it off to play only what you picked. |
+| **genre** keys | two rows: the playlists (chill, asian), then the new music in the order it plays through the day. Pick several. The counts show cached/total tracks. **auto** (on by default) adds the genres that suit the time of day and weather (`moods` in config.json) on top of your picks; switch it off to play only what you picked. |
 | **weather** keys | cloudy leans jazzier; rain leans jazzier, softer and calmer, and brings jazz in even if not selected. |
 | **play / skip** | play starts the DJ. **This replaces the main room's Sonos queue.** |
 | **listen** (slide switch on the unit's left side) | plays what the speakers are playing on this phone or laptop, in step with them (it streams the same file from the DJ laptop and follows the speaker's position to within a few hundredths of a second in mock mode, about half a second on real Sonos, nudging its speed rather than jumping). It acts as one more speaker in the group: it follows the group level, so fades and auto volume can be heard, but not the main room's own level offset or mute. The device volume sets the overall level. On by default in demo mode (only while the page is in front, so a forgotten tab stays quiet), off in live mode; sliding it remembers your choice on that device, and switched on by hand it keeps playing in the background. Browsers only start sound after a tap, so if its LED blinks, tap anywhere. In `--mock`, songs last their real length (measured once cached; `mock_track_seconds` until then). |
 | **love it / not this** | votes. "not this" skips; 3 net downvotes remove a track from rotation. You can also vote on "up next". One vote per song per play, from anyone: extra taps while it plays don't count. |
+| **feedback** (after not this) | staff notes on the music: tap reasons (too loud, too quiet, wrong style, bad song, too energetic, too sleepy, other), add a note and your name. Each one is saved with the time, song, style, volume, occupancy, weather and time of day in `data/feedback.jsonl`; the pop-up shows recent feedback, and **download all (csv)** (`/api/feedback.csv`) exports everything for tuning. |
 | **skip** | with crossfade on, jumps to the last `skip_crossfade_seconds` (8) of the song so the speakers crossfade into the next one; if the song's length isn't known yet, a quick fade down and up instead. |
 | **rooms** | one channel strip per speaker, with the room name printed at the top and a small LCD showing its state and volume. The **on** switch adds the room to the synced group or takes it out. Switching off the **main** room hands the music to another room in the group, which becomes main; if it's the only room playing, the music pauses. |
 | **main** (on each room) | makes that room the main room: it leads the group and holds the queue. The music carries on; a room that's off joins first. Remembered across restarts. |
 | **room fader** (on each room) | that room's volume relative to the main volume, in five printed detents (−10, −5, 0, +5, +10; `room_offset_steps` in `config.json`). Drag, scroll or arrow keys; double-click resets. Saved per room; starts from `room_volume_offsets`. |
 | **mute** (slide switch, on each room) | mutes that room on the Sonos. It stays in the group, so unmuting is instant; a mute set in the Sonos app shows here too. |
 | **eq** (next to party mode) | tone. Press it and the blue and green faders become **bass** and **treble** (−10 to +10, the speakers' own Sonos EQ) for all rooms, and the screen shows the tone curve. Tap a room's name plate to tune just that room on top (tap again for all rooms); each room's LCD shows its tone meanwhile. Press eq again, or leave it for 10 s, to go back. Double-click a fader resets it to flat. The LED is on when the tone isn't flat. The DJ keeps rooms in its group at this tone (putting it back within a minute if it's changed in the Sonos app); Sonos loudness stays on. On its first run it starts from whatever the speakers were already set to. |
+| **add track** (next to eq) | opens a small form to add a song from a stream URL (or drop files into `library/<genre>/`). |
 
 Song names too long for the screen scroll across it, pausing at the start of each pass.
 The screen shows why the DJ is doing what it's doing: `early evening -> energy 0.42 · rain energy -0.08 +Jazzy Cafe`.
 Energy marker ▼ = target, green bar = current track.
+
+**Auto volume changes between songs.** Each song gets one level when it starts, moving at most `volume_step_per_song` (4)
+from the last song's, so the room filling up, the weather, the time slot or a quieter style never shift the volume mid-song.
+The log says each change (`volume: 54 for this song (was 50, target 58)`). Staff moves (volume fader, room faders, auto on/off)
+still apply straight away. While another app plays, auto volume drifts 1 step every ~10 s.
+
+**Loudness mistakes inside a song are evened out.** Whole-song levelling makes songs start level; on top of that, a part far
+louder than the rest of its song is eased down, and a long stretch where a song nearly drops out mid-way is gently lifted,
+so it doesn't come slamming back. Short breaks, choruses and quiet intros/endings are left as made. About 17 of 304 songs
+needed it. Originals are kept (`python -m o3dj.smooth --restore`); `--dry-run` lists what would change (`smooth` in `config.json`).
+
+**Songs flow into each other.** Each pick prefers songs (and styles) close to the last song's energy and tempo, so a somber
+song isn't followed by a very upbeat one; the mix still follows the mood weights over time (`SMOOTH_ENERGY`/`SMOOTH_BPM` in `brain.py`).
+
+**Hand-set volume expires.** Moving the volume (or changing it in the Sonos app) holds that level until the next time slot or `manual_volume_max_hours` (3 h), whichever comes first, then auto volume takes over again. Auto volume also keeps the rooms at the scheduled level while another app (staff Spotify) is playing (`auto_volume_other_sources`); a change made in the Sonos app is held the same way.
 
 ## Calibrating a venue (once, about 5 minutes)
 

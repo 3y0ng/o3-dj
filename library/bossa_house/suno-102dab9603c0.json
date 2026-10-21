@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Bossa Nova 139 B",
+ "genre": "bossa_house",
+ "style": "bossa_house",
+ "bpm": 139,
+ "vocals": false,
+ "prompt": "classic 60s bossa nova, chill, cosy cafe, 139 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.5,
+ "hash": "102dab9603c0",
+ "imported_from": "O3 Bossa Nova 139 B.mp3",
+ "created": "2026-10-10T15:17:57+00:00"
+}

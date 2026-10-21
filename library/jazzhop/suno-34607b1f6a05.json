@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Jazz-hop 91 B",
+ "genre": "jazzhop",
+ "style": "jazzhop",
+ "bpm": 91,
+ "vocals": false,
+ "prompt": "upbeat japanese jazz-hop, chill, cosy cafe, 91 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -2.0,
+ "hash": "34607b1f6a05",
+ "imported_from": "O3 Jazz-hop 91 B.mp3",
+ "created": "2026-10-10T15:20:01+00:00"
+}

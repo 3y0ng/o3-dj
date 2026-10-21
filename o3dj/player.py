@@ -26,15 +26,27 @@ class SonosPlayer:
     def __init__(self, coordinator_ip, crossfade=True):
         import soco  # imported here so --mock works without SoCo installed
         self.soco = soco
+        # A speaker that has dropped off the Wi-Fi used to hold every request for 20 s (SoCo's default), freezing the DJ
+        # and the controller. Healthy speakers answer in well under a second.
+        if hasattr(soco, "config"):
+            soco.config.REQUEST_TIMEOUT = 6.0
         self.anchor_ip = coordinator_ip
         self.crossfade = crossfade
         self.zones = {}          # ip -> SoCo
+        self.ctrl_ip = coordinator_ip
         self.lock = threading.RLock()
         self.error = None
 
     # -- discovery & grouping ------------------------------------------------
     def discover(self):
         found = self.soco.discover(timeout=8) or set()
+        if not found:
+            # Multicast discovery sometimes finds nothing on this Wi-Fi (it did on 10 Oct 2026): scan the network directly.
+            try:
+                found = self.soco.discovery.scan_network() or set()
+                log.warning("speaker discovery found nothing; a network scan found %d", len(found))
+            except Exception as e:
+                log.warning("speaker discovery found nothing and the network scan failed: %s", e)
         with self.lock:
             for z in found:
                 self.zones[z.ip_address] = z
@@ -54,6 +66,38 @@ class SonosPlayer:
                 self.anchor_ip = sorted(self.zones.values(), key=lambda z: z.player_name)[0].ip_address
         return len(self.zones)
 
+    def failover(self, old_ip, prefer=()):
+        """The main room stopped answering: lead from another room that's on the network. Prefers rooms that were
+        in the DJ's group (`prefer`), then the coordinator of the biggest group. Returns the new main room's IP or None."""
+        found = set(self.soco.discover(timeout=5) or set())
+        if not any(z.ip_address != old_ip for z in found):
+            try:
+                found |= set(self.soco.discovery.scan_network() or set())
+            except Exception as e:
+                log.warning("network scan failed: %s", e)
+        cands = [z for z in found if z.ip_address != old_ip]
+        if not cands:
+            return None
+
+        def size(z):
+            try:
+                return len(z.group.members)
+            except Exception:
+                return 0
+        best = max(cands, key=lambda z: (z.ip_address in prefer, size(z)))
+        with self.lock:
+            for z in found:
+                self.zones[z.ip_address] = z
+            self.zones.pop(old_ip, None)
+            self.anchor_ip = best.ip_address
+            try:  # still in a group led by the room that's gone: leave it, so it leads its own
+                if best.group.coordinator.ip_address != best.ip_address:
+                    best.unjoin()
+            except Exception:
+                pass
+        log.warning("main room %s stopped answering; %s (%s) takes over", old_ip, best.player_name, best.ip_address)
+        return best.ip_address
+
     def household(self):
         with self.lock:
             z = self.zones.get(self.anchor_ip) or self.soco.SoCo(self.anchor_ip)
@@ -62,36 +106,60 @@ class SonosPlayer:
     @property
     def ctrl(self):
         """The group coordinator for the anchor room; all transport goes here."""
-        return self.zones.get(self.anchor_ip, self.soco.SoCo(self.anchor_ip)).group.coordinator
+        c = self.zone(self.anchor_ip).group.coordinator
+        self.ctrl_ip = c.ip_address  # the room actually leading (the DJ fails over if it stops answering)
+        return c
+
+    def zone(self, ip):
+        """A room by IP, including one that came back on the network after start-up."""
+        z = self.zones.get(ip)
+        if z is None:
+            z = self.zones[ip] = self.soco.SoCo(ip)
+        return z
 
     def speakers(self):
         with self.lock:
             ctrl = self.ctrl
             members = {m.ip_address for m in ctrl.group.members}
             out = []
-            for ip, z in sorted(self.zones.items(), key=lambda kv: kv[1].player_name):
+            for ip, z in list(self.zones.items()):
+                try:  # a room that has dropped off the Wi-Fi is left out, rather than failing the whole list
+                    name = z.player_name
+                except Exception:
+                    if ip in members or ip == ctrl.ip_address:
+                        raise
+                    continue
                 try:
                     muted = bool(z.mute)
                 except Exception:
                     muted = False
-                out.append({"ip": ip, "name": z.player_name, "in_group": ip in members,
+                out.append({"ip": ip, "name": name, "in_group": ip in members,
                             "coordinator": ip == ctrl.ip_address, "anchor": ip == self.anchor_ip, "muted": muted})
-            return out
+            return sorted(out, key=lambda r: r["name"])
+
+    def answers(self, ip):
+        """Is there a speaker at this address (e.g. one discovery missed)? Adds it to the known rooms if so."""
+        try:
+            z = self.zone(ip)
+            return bool(z.player_name)
+        except Exception:
+            self.zones.pop(ip, None)
+            return False
 
     def set_mute(self, ip, on):
         """Per-room mute: the room stays in the group, so unmuting is instant."""
         with self.lock:
-            self.zones[ip].mute = bool(on)
+            self.zone(ip).mute = bool(on)
 
     def eq(self, ip):
         """The room's own tone settings (Sonos: bass/treble -10..10, loudness on/off)."""
         with self.lock:
-            z = self.zones[ip]
+            z = self.zone(ip)
             return {"bass": int(z.bass), "treble": int(z.treble), "loudness": bool(z.loudness)}
 
     def set_eq(self, ip, bass=None, treble=None, loudness=None):
         with self.lock:
-            z = self.zones[ip]
+            z = self.zone(ip)
             if bass is not None:
                 z.bass = int(bass)
             if treble is not None:
@@ -107,7 +175,7 @@ class SonosPlayer:
         """Poll group state until cond() holds (Sonos applies grouping changes asynchronously)."""
         end = time.monotonic() + secs
         while True:
-            self.zones[ip].zone_group_state.clear_cache()
+            self.zone(ip).zone_group_state.clear_cache()
             try:
                 if cond():
                     return True
@@ -125,7 +193,7 @@ class SonosPlayer:
             if ip == ctrl.ip_address:
                 self.anchor_ip = ip
                 return
-            new = self.zones[ip]
+            new = self.zone(ip)
             if not self._wait(ip, lambda: ip in {m.ip_address for m in ctrl.group.members}):
                 raise RuntimeError(f"{new.player_name} didn't join the group")
             ctrl.avTransport.DelegateGroupCoordinationTo([
@@ -148,6 +216,16 @@ class SonosPlayer:
         except Exception as e:
             log.warning("couldn't silence %s: %s", zone.player_name, e)
 
+    def ensure_crossfade(self):
+        """Crossfade is a setting of whichever room leads the group: switch it back on if it's off (e.g. after the
+        main room changed). Returns True if it had to. Only works while the queue is the source."""
+        with self.lock:
+            c = self.ctrl
+            if self.crossfade and not c.cross_fade:
+                c.cross_fade = True
+                return True
+            return False
+
     def party(self):
         with self.lock:
             self.ctrl.partymode()
@@ -156,13 +234,13 @@ class SonosPlayer:
         with self.lock:
             ctrl = self.ctrl
             if ip != ctrl.ip_address:
-                self.zones[ip].join(ctrl)
+                self.zone(ip).join(ctrl)
 
     def leave(self, ip):
         with self.lock:
             ctrl = self.ctrl
             if ip != ctrl.ip_address:
-                self.zones[ip].unjoin()
+                self.zone(ip).unjoin()
 
     # -- queue & transport ---------------------------------------------------
     def _didl(self, item):
@@ -280,7 +358,7 @@ class SonosPlayer:
 
     def set_volume(self, ip, vol):
         with self.lock:
-            self.zones[ip].volume = vol
+            self.zone(ip).volume = vol
 
 
 class MockPlayer:
@@ -314,6 +392,25 @@ class MockPlayer:
     def set_mute(self, ip, on):
         self.rooms[ip]["mute"] = bool(on)
 
+    def answers(self, ip):
+        return ip in self.rooms and ip not in self.offline
+
+    offline = frozenset()  # rooms that stopped answering (tests): talking to the main room then fails
+
+    def _check(self):
+        if self.anchor_ip in self.offline:
+            raise ConnectionError(f"HTTPConnectionPool(host='{self.anchor_ip}', port=1400): Max retries exceeded")
+
+    def failover(self, old_ip, prefer=()):
+        online = [ip for ip in self.rooms if ip not in self.offline and ip != old_ip]
+        if not online:
+            return None
+        new = next((ip for ip in prefer if ip in online), online[0])
+        self.anchor_ip = new
+        self.group = {new}
+        self.queue, self.index, self.state = [], -1, "STOPPED"  # the old main room held the queue
+        return new
+
     def eq(self, ip):
         r = self.rooms[ip]
         return {"bass": r.get("bass", 0), "treble": r.get("treble", 0), "loudness": r.get("loudness", True)}
@@ -327,6 +424,14 @@ class MockPlayer:
     def set_anchor(self, ip):
         self.anchor_ip = ip
         self.group.add(ip)
+
+    cross_fade = True
+
+    def ensure_crossfade(self):
+        if not self.cross_fade:
+            self.cross_fade = True
+            return True
+        return False
 
     def make_main(self, ip, keep_old=True):
         """Like Sonos's group delegation: the queue and playback move to `ip`, which must be in the group."""
@@ -429,6 +534,7 @@ class MockPlayer:
                 self.play_index(self.index + 1)
 
     def status(self):
+        self._check()
         with self.lock:
             self._advance()
             cur = self.queue[self.index] if 0 <= self.index < len(self.queue) else {}

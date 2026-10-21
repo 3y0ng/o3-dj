@@ -30,7 +30,7 @@ UA = {"User-Agent": "o3-dj/0.1"}
 class Track:
     id: str
     title: str
-    genre: str            # our genre key, e.g. "jazzy_cafe"
+    genre: str            # our genre key, e.g. "chill"
     source: str           # "chillify" | "folder" | "suno" | "url"
     url: str | None = None    # remote stream URL
     path: str | None = None   # path relative to library/ for local files

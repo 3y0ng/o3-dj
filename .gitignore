@@ -4,6 +4,6 @@ __pycache__/
 .DS_Store
 config.local.json
 data/
-library/*
-!library/README.md
-!library/custom_tracks.example.json
+# songs are committed (library/<genre>/); local-only bits are not
+library/custom_tracks.json
+library/**/*.part

@@ -64,6 +64,9 @@ def make_dj(tmp_path, player=None):
     d.cfg = {**CFG, "skip_crossfade_seconds": 0,  # plain skips; the crossfade skip is tested separately
              # no per-genre volume offsets, so volume checks don't depend on which genre the clock picks
              "genres": {g: {k: v for k, v in c.items() if k != "volume_offset"} for g, c in CFG["genres"].items()}}
+    # A fixed time of day (2pm), so results don't depend on when the tests run: on CI at 06:00 UTC the real clock
+    # fell in quiet hours (5-7am) and the DJ paused. Tests about time set their own hour_now.
+    d.hour_now = lambda: 14.0
     return d
 
 
@@ -136,7 +139,7 @@ def test_skip_without_known_length_falls_back_to_next(dj):
 
 
 def test_each_genre_plays_at_least_twice_in_a_row(dj):
-    dj.set_inputs({"genres": ["chill", "jazzy_cafe", "asian"], "moods": False})
+    dj.set_inputs({"genres": ["chill", "asian"], "moods": False})
     started(dj)
     seq = []
     for i in range(20):  # fewer than each genre's 20 songs: a genre with no fresh song left ends its run early
@@ -374,6 +377,7 @@ def test_auto_volume_ramps_gently(dj):
     started(dj)
     ip = dj.player.anchor_ip
     dj.player.set_volume(ip, dj.targets["volume"] + 10)
+    dj.volume_set[ip] = dj.targets["volume"] + 10  # a level the DJ itself set (not a Sonos-app change, which is held)
     dj.tick(1)
     assert dj.player.volumes()[ip] == dj.targets["volume"] + 8
 
@@ -594,6 +598,7 @@ def test_room_offset_from_controller_overrides_config(tmp_path):
 def test_mute_keeps_room_in_group_and_leaves_volume_alone(dj):
     started(dj)
     ip = dj.player.anchor_ip
+    dj.player.set_volume(ip, dj.targets["volume"]); dj.volume_set[ip] = dj.targets["volume"]
     dj.speaker_action("mute", ip, True)
     room = next(s for s in dj.speakers if s["ip"] == ip)
     assert room["muted"] and room["in_group"] and room["coordinator"]
@@ -774,3 +779,269 @@ def test_the_djs_own_skip_is_not_logged_as_early(dj):
     at_elapsed(dj, 79); dj.tick(1)
     dj.skip(); dj.tick(2); dj.tick(3)
     assert not any("ended early" in e["msg"] for e in dj.events)
+
+
+def test_feedback_is_logged_with_context(dj):
+    started(dj)
+    e = dj.add_feedback(["too quiet", "not a tag"], " can't hear it by the window ", "sam")
+    assert e["tags"] == ["too quiet"] and e["note"] == "can't hear it by the window" and e["who"] == "sam"
+    assert e["song_id"] == dj.now_id and e["volume_target"] == dj.targets["volume"] and e["playing"]
+    dj.add_feedback(["bad song"])
+    rows = dj.feedback()
+    assert [r["tags"] for r in rows] == [["bad song"], ["too quiet"]]  # newest first, and kept on disk
+    assert dj.feedback_file.name == "feedback.jsonl" and len(dj.feedback_file.read_text().splitlines()) == 2
+    with pytest.raises(ValueError):
+        dj.add_feedback([], "  ")
+
+
+# -- main room drops out mid-play -------------------------------------------------------
+
+def test_main_room_dropping_out_hands_over_and_keeps_playing(dj):
+    started(dj)
+    office, mezz, storage = dj.player.anchor_ip, ip_of(dj, "Mock Mezzanine"), ip_of(dj, "Mock 2nd Floor Storage Room")
+    dj.speaker_action("join", mezz); dj.speaker_action("join", storage)
+    dj.player.offline = {office}           # power cut / Wi-Fi drop on the main room
+    for n in range(dj.MAIN_FAILS_BEFORE_FAILOVER - 1):
+        dj.safe_tick(n)
+        assert dj.player.anchor_ip == office  # a blip or two isn't enough
+    dj.safe_tick(9)
+    assert dj.player.anchor_ip in (mezz, storage)
+    assert {s["ip"] for s in dj.speakers if s["in_group"]} == {mezz, storage}  # the rest of the group carries on
+    assert dj.running and dj.player.status()["state"] == "PLAYING"
+    assert any("stopped answering" in e["msg"] for e in dj.events)
+    assert dj.store.data["main_room"] == dj.player.anchor_ip   # a restart keeps the new main room
+
+
+def test_other_rooms_not_answering_doesnt_move_the_main_room(dj, monkeypatch):
+    started(dj)
+    office = dj.player.anchor_ip
+    def boom():
+        raise ConnectionError("HTTPConnectionPool(host='10.0.0.99', port=1400): Max retries exceeded")
+    monkeypatch.setattr(dj.player, "volumes", boom)  # a member, not the main room, is unreachable
+    for n in range(5):
+        dj.safe_tick(n)
+    assert dj.player.anchor_ip == office
+
+
+def test_unreachable_group_leader_also_hands_over(dj):
+    started(dj)
+    office, mezz = dj.player.anchor_ip, ip_of(dj, "Mock Mezzanine")
+    dj.speaker_action("join", mezz)
+    dj.player.ctrl_ip = "10.0.0.77"          # the group is led by a room that has gone quiet
+    dj.player.offline = {office}
+    real = dj.player._check
+    dj.player._check = lambda: (_ for _ in ()).throw(ConnectionError("HTTPConnectionPool(host='10.0.0.77', port=1400)"))
+    for n in range(dj.MAIN_FAILS_BEFORE_FAILOVER):
+        dj.safe_tick(n)
+    dj.player._check = real
+    assert dj.player.anchor_ip == mezz and dj.running
+
+
+# -- hand-set volume holds for a while; auto volume also covers other apps ----------------
+
+def test_controller_volume_holds_then_expires_after_max_hours(dj, monkeypatch):
+    started(dj)
+    dj.set_inputs({"auto": False, "manual_volume": 44})
+    assert not dj.inputs.auto and dj.inputs.manual_since
+    dj.tick(1)
+    assert not dj.inputs.auto                      # still held
+    real = time.time
+    monkeypatch.setattr(dj_mod.time, "time", lambda: real() + dj.cfg["manual_volume_max_hours"] * 3600 + 5)
+    dj.tick(2)
+    assert dj.inputs.auto and dj.inputs.manual_since is None
+    assert any("volume back on the schedule" in e["msg"] for e in dj.events)
+
+
+def test_hand_set_volume_ends_at_the_next_time_slot(dj, monkeypatch):
+    monkeypatch.setattr(dj, "hour_now", lambda: 11.5)
+    started(dj)
+    dj.set_inputs({"auto": False, "manual_volume": 44})
+    monkeypatch.setattr(dj, "hour_now", lambda: 12.2)  # 12pm: a new volume slot
+    dj.tick(1)
+    assert dj.inputs.auto
+
+
+def test_sonos_app_change_is_held_not_undone(dj):
+    started(dj)
+    main = dj.player.anchor_ip
+    dj.dj_moved = 0                                 # well after the DJ's own start/skips
+    dj.tick(1)                                      # DJ notes the level it set
+    dj.player.rooms[main]["volume"] += 8            # someone turns it up in the Sonos app
+    held = dj.player.rooms[main]["volume"]
+    dj.tick(2); dj.tick(3)
+    assert not dj.inputs.auto and dj.player.volumes()[main] == held
+    assert any("in the Sonos app" in e["msg"] for e in dj.events)
+
+
+def test_auto_volume_applies_while_another_app_plays(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    d = started(make_dj(tmp_path, player))
+    player.queue[player.index] = dict(player.queue[player.index], uri="x-sonos-vli:spotify")  # staff Spotify
+    for n in range(1, 5):
+        d.tick(n)
+    assert not d.running                            # the DJ stood down...
+    main = player.anchor_ip
+    player.rooms[main]["volume"] = 5
+    d.volume_set = {}                               # (as if the DJ hadn't set it: no "app change")
+    for n in range(5, 40):
+        d.tick(n)
+    assert 5 < player.volumes()[main] <= 12              # ...drifting 1 step every ~10 s, not jumping
+    for n in range(40, 400):
+        d.tick(n)
+    assert player.volumes()[main] == d.targets["volume"]  # ...and the room still follows the schedule
+
+
+# -- responsiveness on bad Wi-Fi, skips, crossfade ----------------------------------------
+
+import threading
+
+
+def _hold_lock(dj, seconds):
+    held = threading.Event()
+    def hold():
+        with dj.lock:
+            held.set()
+            time.sleep(seconds)
+    t = threading.Thread(target=hold, daemon=True)
+    t.start()
+    held.wait()
+    return t
+
+
+def test_status_answers_at_once_while_the_dj_waits_on_a_speaker(dj):
+    started(dj)
+    dj.snapshot()
+    t = _hold_lock(dj, 2.0)                  # the DJ is stuck on a slow speaker
+    t0 = time.monotonic()
+    snap = dj.snapshot()
+    assert time.monotonic() - t0 < 1.0 and snap["busy"]
+    e = dj.add_feedback(["too quiet"])       # saving feedback doesn't wait either
+    assert time.monotonic() - t0 < 1.5 and e["tags"] == ["too quiet"]
+    t.join()
+
+
+def test_buttons_answer_within_a_second_and_still_happen(dj):
+    from o3dj.server import create_app
+    started(dj)
+    client = create_app(dj).test_client()
+    dj.snapshot()
+    first = dj.now_id
+    t = _hold_lock(dj, 2.0)
+    t0 = time.monotonic()
+    r = client.post("/api/control", json={"action": "skip"})
+    assert r.status_code == 200 and time.monotonic() - t0 < 2.0 and r.get_json().get("busy")
+    t.join(); time.sleep(0.3); dj.tick(5)
+    assert dj.now_id != first                # the skip went through once the speaker answered
+
+
+def test_interrupted_fade_skip_restores_volume_and_isnt_mistaken_for_the_sonos_app(dj, monkeypatch):
+    started(dj)
+    dj.fade_skips = True
+    dj.cfg = dict(dj.cfg, skip_crossfade_seconds=0)  # force the volume-fade skip
+    dj.tick(1)
+    start = dj.player.group_volume()
+    real_set = dj.player.set_group_volume
+    calls = {"n": 0}
+    def flaky(v):                            # the fade back up fails half way (bad Wi-Fi)
+        calls["n"] += 1
+        if calls["n"] in (6, 7):
+            raise ConnectionError("Wi-Fi blip")
+        real_set(v)
+    monkeypatch.setattr(dj.player, "set_group_volume", flaky)
+    monkeypatch.setattr(dj_mod.time, "sleep", lambda s: None)
+    dj._fade_skip()
+    assert dj.player.group_volume() >= start - 1
+    dj.tick(2); dj.tick(3)
+    assert dj.inputs.auto                    # not held as a "Sonos app" change
+
+
+def test_crossfade_switched_back_on(dj):
+    started(dj)
+    dj.player.cross_fade = False             # e.g. the new main room after a failover
+    dj.tick(30)
+    assert dj.player.cross_fade and any("crossfade was off" in e["msg"] for e in dj.events)
+
+
+# -- staff genre picks with auto (moods) on ---------------------------------------------
+
+def test_genre_switched_on_with_auto_is_a_pick_until_the_slot_ends(dj, monkeypatch):
+    monkeypatch.setattr(dj, "hour_now", lambda: 15.0)   # afternoon slot (until 17:00)
+    started(dj)
+    dj.set_inputs({"genres": dj.inputs.genres + ["asian"]})
+    assert dj.inputs.picks == {"asian": "afternoon"}
+    monkeypatch.setattr(dj, "hour_now", lambda: 17.1)  # early evening: the pick expires
+    dj.tick(1)
+    assert "asian" not in dj.inputs.genres and dj.inputs.picks == {}
+    assert any("genre picks ended" in e["msg"] for e in dj.events)
+
+
+def test_with_auto_off_genre_keys_are_exact_and_not_picks(dj):
+    started(dj)
+    dj.set_inputs({"moods": False})
+    dj.set_inputs({"genres": ["asian"]})
+    assert dj.inputs.picks == {} and set(dj.targets["weights"]) == {"asian"}
+
+
+def test_keys_lit_before_picks_existed_are_switched_off(tmp_path):
+    import json as _j
+    (tmp_path / "state.json").write_text(_j.dumps({"inputs": {"genres": ["chill", "dark_academia"], "moods": True}}))
+    d = make_dj(tmp_path)
+    assert d.inputs.genres == ["chill"] and d.inputs.picks == {}   # no surprise Dark Academia
+    assert any("switched off" in e["msg"] for e in d.events)
+
+
+# -- volume changes land between songs ---------------------------------------------------
+
+def test_volume_target_changes_wait_for_the_next_song(dj):
+    started(dj)
+    ip = dj.player.anchor_ip
+    for n in range(1, 4):
+        dj.tick(n)
+    before = dj.player.volumes()[ip]
+    dj.set_inputs({"occupancy_enabled": True, "occupancy": 1.0})  # the room fills up mid-song: a staff/feed input
+    up = dj.targets["volume"]
+    assert up > before
+    # live inputs (not a staff volume move) don't change the playing song's level
+    dj.volume_set = dict(dj.player.volumes())
+    dj.song_volume = before
+    dj.player.set_volume(ip, before); dj.volume_set[ip] = before
+    for n in range(4, 20):
+        dj.tick(n)
+    assert dj.player.volumes()[ip] == before
+    dj.player.next(); dj.tick(20); dj.tick(21)       # next song: moves toward the target, at most 4 steps
+    for n in range(22, 40):
+        dj.tick(n)
+    assert dj.player.volumes()[ip] == min(up, before + 4)
+
+
+def test_staff_volume_change_applies_straight_away(dj):
+    started(dj)
+    ip = dj.player.anchor_ip
+    dj.set_inputs({"auto": False, "manual_volume": 30})
+    assert dj.player.volumes()[ip] == 30 + dj.room_offset(next(s["name"] for s in dj.speakers if s["ip"] == ip))
+    assert dj.song_volume == 30
+
+
+def test_next_pick_follows_the_last_queued_song(dj):
+    started(dj)
+    seen = []
+    orig = dj_mod.brain.pick
+    def spy(*a, **kw):
+        seen.append(kw.get("prev"))
+        return orig(*a, **kw)
+    dj_mod.brain.pick = spy
+    try:
+        last = dj.queued_ids()[-1]
+        out = dj.pick(2)
+    finally:
+        dj_mod.brain.pick = orig
+    assert seen[0] is not None and seen[0].id == last
+    assert seen[1] is out[0]
+
+
+def test_removed_genre_is_switched_off_on_start(tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps({"inputs": {"genres": ["jazzy_cafe", "chill"], "moods": True,
+                                                                "picks": {"jazzy_cafe": 1.0}}}))
+    d = make_dj(tmp_path)
+    assert d.inputs.genres == ["chill"] and d.inputs.picks == {}
+    assert "jazzy_cafe" not in d.targets["weights"]

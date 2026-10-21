@@ -42,15 +42,26 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   `Inputs.moods` is off), occupancy `bands` (energy / BPM shift / instrumental; volume still rises with occupancy),
   per-genre `bpm` (+ `bpm_ramp`) + `fallback` (a genre under `min_tracks` hands weight to its fallback), and `new_music` (the mood genres'
   share: 0.4 growing to 1.0 as the slot's library fills; the selection gets the rest; chill is 20% of morning/evening moods),
-  `min_genre_run` (DJ passes `stay_in` to `brain.pick`) and per-genre `volume_offset` (`DJ.genre_volume_offset`). Calibration fits energy
+  `min_genre_run` (DJ passes `stay_in` to `brain.pick`), smooth flow (DJ passes `prev`, the last queued song; `brain.smoothness`),
+  per-song volume (`DJ.song_volume`, moved ≤`volume_step_per_song` at each song start; staff moves apply at once) and per-genre `volume_offset` (`DJ.genre_volume_offset`). Calibration fits energy
   without the band (`calibrate.defaults` energy busy/empty are 0).
+- Songs are committed in `library/<genre>/` (public repo, by the owner's choice; ~1.8 GB, so CI checks out without them).
+  Rejected songs are never committed: they live in `~/o3-dj-rejected/` and `data/removed-songs/`. After importing new songs
+  on the DJ device, let the prefetcher smooth them, then commit them from there.
 - `suno/styles.json`: approved Suno prompts, BPM ranges, exclude lists and settings per style. Songs are made by hand in
   the Suno web app, titled "O3 <style label> <bpm>", then `tools/suno_import.py add|export|unpack` brings them into
   `library/` and moves them to the DJ device. Don't use the unofficial suno-api: it relies on a CAPTCHA-solving service.
   `tools/suno_generate.py` is kept for an official API. Only Pro/Premier-plan songs are licensed for the cafe.
+  When driving the Suno form (e.g. Claude in Chrome), fill the textarea under the "Styles" heading (a fresh tab also has an
+  "Ask anything" box that looks similar) and, after each Create, check Suno's description of both takes names the style;
+  stop at the first miss. See `library/README.md` step 6.
 - `o3dj/cache.py`: download cache + a background worker that measures durations, downloads upcoming/warm tracks, levels them
   (loudness normalisation: `Cache.normalise` rewrites a cached file once; `data/normalised.json`), and analyses tempo.
   Never rewrite the playing file or the next one: Sonos pre-loads it and range-reads the file.
+- `o3dj/smooth.py`: evens out loudness mistakes inside library songs (a part far above the song's own level is turned down; a
+  long mid-song drop-out is lifted by one amount; the first/last `protect_s` are never lifted, so intended quiet intros stay).
+  The prefetcher runs it once per file (`data/smoothed.json`), never on the playing/next song; originals in `data/originals/`.
+  `python -m o3dj.smooth --dry-run | --restore | --preview IN OUT`.
 - `o3dj/analysis.py`: ffmpeg + numpy tempo/energy; energy is a percentile across analysed tracks. `track_meta.json` also stores durations.
 - `o3dj/live.py`: LIVE mode feeds (Open-Meteo weather, read-only Supabase occupancy) and staff overrides with expiry.
   `DJ.effective_inputs()` layers override → live → neutral; `brain.py` never knows which mode it's in.
@@ -63,6 +74,8 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   default weather/occupancy numbers; `calibrate.defaults(cfg)` reproduces uncalibrated behaviour exactly (tested).
 - `o3dj/server.py`: JSON API, `/ui/*` static files, `/media/*` (speakers stream cached files from this laptop over the LAN).
 - `data/` (gitignored): `state.json` (inputs, votes, history, running), `track_meta.json`, `cache/`, catalogue snapshot.
+  `feedback.jsonl`: staff feedback (`DJ.add_feedback`), one JSON object per line with the context at that moment. Read it
+  when tuning volume/energy/styles: it is the record of what sounded wrong, and when.
 
 ## Sonos gotchas (learned live; don't regress)
 

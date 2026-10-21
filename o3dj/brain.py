@@ -12,12 +12,14 @@ from dataclasses import asdict, dataclass, field
 class Inputs:
     genres: list = field(default_factory=lambda: ["chill"])
     moods: bool = True                # add genres for the time of day and weather (config `moods`)
+    picks: dict = field(default_factory=dict)  # genre -> mood slot it was switched on in, with moods on (see targets)
     weather: str = "clear"            # clear | cloudy | rain
     occupancy: int = 50               # 0..100 %
     occupancy_enabled: bool = False
     hour_override: float | None = None  # None = follow the clock
     auto: bool = True                 # auto volume from atmosphere
     manual_volume: int = 30           # used when auto is off
+    manual_since: float | None = None  # when the volume was set by hand (controller or Sonos app); it expires
     volume_trim: int = 0              # added to auto volume
     energy_trim: float = 0.0          # added to target energy
 
@@ -56,6 +58,15 @@ def mood_daypart(cfg, hour):
     return name
 
 
+def mood_until(cfg, hour):
+    """The hour the current `moods` slot ends (when staff genre picks made in it expire)."""
+    starts = sorted(h for h, _ in cfg.get("mood_hours") or [])
+    if not starts:
+        return None
+    later = [h for h in starts if h > hour % 24]
+    return later[0] if later else starts[0]
+
+
 def mood_progress(cfg, hour):
     """How far through its mood daypart an hour is, 0..1 (0 = the part just started)."""
     hours = sorted(cfg.get("mood_hours") or [], key=lambda x: x[0])
@@ -82,6 +93,17 @@ def new_music_share(cfg, mood, counts=None):
         return full
     fill = sum(w * min(1.0, counts.get(g, 0) / need) for g, w in new.items()) / sum(new.values())
     return start + (full - start) * fill
+
+
+def volume_floor(cfg, occupancy):
+    """The minimum auto volume for how full the room is, or None below the first point."""
+    pts = sorted(cfg.get("occupancy", {}).get("volume_floor", []))
+    if not pts or occupancy < pts[0][0]:
+        return None
+    for (o0, v0), (o1, v1) in zip(pts, pts[1:]):
+        if occupancy <= o1:
+            return v0 + (v1 - v0) * (occupancy - o0) / (o1 - o0)
+    return pts[-1][1]
 
 
 def occupancy_band(cfg, occupancy):
@@ -124,6 +146,17 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
                 weights[g] = weights.get(g, 0.0) + added[g]
             reasons.append(f"{part.replace('_', ' ')}, {inputs.weather} -> " + "/".join(all_genres.get(g, g) for g in mood)
                            + f" ({share:.0%} new music)")
+            # Genres staff switched on during this slot get a guaranteed share (moods.pick_share) until the slot ends,
+            # even when the mood styles would otherwise take every pick.
+            picked = [g for g in selected if g in (inputs.picks or {})]
+            if picked:
+                ps = moods.get("pick_share", 0.3)
+                weights = {g: v * (1 - ps) for g, v in weights.items()}
+                added = {g: v * (1 - ps) for g, v in added.items()}
+                sel_unit *= (1 - ps)
+                for g in picked:
+                    weights[g] = weights.get(g, 0.0) + ps / len(picked)
+                reasons.append("staff picks " + "/".join(all_genres.get(g, g) for g in picked) + f" ({ps:.0%})")
 
     if counts is not None:
         _fallback(weights, added, cfg, counts, all_genres, reasons)
@@ -173,6 +206,13 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
                 volume += rule["volume"]
                 reasons.append(f"{rule['part'].replace('_', ' ')} under {rule['below']}% full -> vol {rule['volume']:+d}")
 
+    # A busy room needs a minimum level to sit above the chatter, whatever the time of day: occupancy.volume_floor
+    # [[percent_full, volume], ...], interpolated between points and flat after the last (none below the first).
+    floor = volume_floor(cfg, inputs.occupancy) if inputs.occupancy_enabled else None
+    if floor is not None and volume < floor:
+        reasons.append(f"{inputs.occupancy}% full -> at least vol {floor:.0f}")
+        volume = floor
+
     # Energy and tempo meet the room's need: lift an empty cafe, calm a packed one.
     bpm_shift, instrumental = 0, False
     band = occupancy_band(cfg, inputs.occupancy) if inputs.occupancy_enabled else None
@@ -216,6 +256,7 @@ def targets(inputs: Inputs, cfg, hour_now: float, all_genres, calibration=None, 
         "clock": inputs.hour_override is None,
         "daypart": daypart,
         "mood_daypart": part,
+        "mood_until": mood_until(cfg, hour),
         "energy": round(_clip(energy, 0.05, 0.95), 3),
         "volume": int(round(_clip(volume, cfg["min_volume"], cfg["max_volume"]))),
         "volume_base": round(volume_base, 1),
@@ -293,30 +334,53 @@ def score(t, tgt, energy_of, bpm_of, votes):
     return s * tgt.get("source_weight", {}).get(t.source, 1.0)
 
 
-def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None, stay_in=None):
+SMOOTH_ENERGY = 0.18   # how far the next song's energy may sit from the last one's before it's discouraged
+SMOOTH_BPM = 14        # same for tempo
+
+
+def smoothness(t, prev, energy_of, bpm_of):
+    """How gently `t` follows `prev` (1 = same feel): a somber song shouldn't be followed by a very upbeat one."""
+    if prev is None:
+        return 1.0
+    f = 1.0
+    e0, e1 = energy_of(prev.id), energy_of(t.id)
+    if e0 is not None and e1 is not None:
+        f *= math.exp(-((e1 - e0) ** 2) / (2 * SMOOTH_ENERGY ** 2))
+    b0, b1 = (bpm_of(prev), bpm_of(t)) if bpm_of else (None, None)
+    if b0 and b1:
+        f *= math.exp(-((b1 - b0) ** 2) / (2 * SMOOTH_BPM ** 2))
+    return max(f, 0.02)
+
+
+def pick(tracks_by_genre, tgt, energy_of, votes, recent, available, rng=random, bpm_of=None, stay_in=None, prev=None):
     """Choose a genre by weight, then a track in it by energy/tempo match x votes.
 
     tracks_by_genre: {genre: [Track]}; energy_of(id) -> float|None; bpm_of(track) -> float|None;
     votes: {id: {...}}; recent: set of ids to avoid; available(track) -> bool.
     stay_in: a genre to try first (so a genre plays at least min_genre_run songs in a row), if it's still wanted
     and has a song that hasn't played recently (a song is never repeated just to make a pair).
+    prev: the song this one follows. Songs (and genres) close to it in energy and tempo are preferred, so the
+    music flows instead of jumping from somber to upbeat.
     """
     genres = [g for g, w in tgt["weights"].items() if w > 0 and tracks_by_genre.get(g)]
     for relax in (False, True):
-        pool_g = list(genres)
-        while pool_g:
-            if stay_in in pool_g:
-                g = stay_in
-            else:
-                g = rng.choices(pool_g, weights=[tgt["weights"][x] for x in pool_g])[0]
-            cands, scores = [], []
-            for t in tracks_by_genre[g]:
-                v = votes.get(t.id)
-                if banned(v) or not available(t) or (not relax and t.id in recent):
-                    continue
-                cands.append(t)
-                scores.append(score(t, tgt, energy_of, bpm_of, votes))
-            if cands:
-                return rng.choices(cands, weights=scores)[0]
-            pool_g.remove(g)
+        cands_by = {}
+        for g in genres:
+            cs = [t for t in tracks_by_genre[g]
+                  if not banned(votes.get(t.id)) and available(t) and (relax or t.id not in recent)]
+            if cs:
+                cands_by[g] = cs
+        if not cands_by:
+            continue
+        smooth = {g: [smoothness(t, prev, energy_of, bpm_of) for t in cs] for g, cs in cands_by.items()}
+        if stay_in in cands_by:
+            g = stay_in
+        else:
+            gs = list(cands_by)
+            # a genre with nothing close to the last song is still possible, just less likely
+            ws = [tgt["weights"][x] * (0.25 + 0.75 * max(smooth[x])) for x in gs]
+            g = rng.choices(gs, weights=ws)[0]
+        cs = cands_by[g]
+        scores = [score(t, tgt, energy_of, bpm_of, votes) * f for t, f in zip(cs, smooth[g])]
+        return rng.choices(cs, weights=scores)[0]
     return None

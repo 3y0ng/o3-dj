@@ -172,6 +172,7 @@
           <button class="key" id="k-skip"><svg viewBox="0 0 24 24"><path d="M5 5l9 7-9 7zM17 5v14" class="solid"/></svg><em>skip</em></button>
           <button class="key" id="k-up"><svg viewBox="0 0 24 24"><path d="M12 5l7 11H5z" class="solid"/></svg><em>love it</em></button>
           <button class="key" id="k-down"><svg viewBox="0 0 24 24"><path d="M12 19L5 8h14z" class="solid"/></svg><em>not this</em></button>
+          <button class="key" id="k-feedback" title="note something about the music (time, song and volume are saved with it)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4V5z"/><path d="M8 9h8M8 12.5h5"/></svg><em>feedback</em></button>
         </div>
       </div>
     </div>
@@ -181,6 +182,7 @@
       <div class="rooms-head">
         <h3>rooms</h3>
         <button class="mini" id="k-eq" title="tone: bass and treble for all rooms, or tap a room to tune just that one"><span class="led"></span>eq</button>
+        <button class="mini" id="k-add" title="add a song from a stream URL">add track</button>
         <button class="mini" id="k-party" title="join every speaker into one synced group">party mode</button>
         <button class="mini" id="k-scan" title="look for speakers again">scan</button>
       </div>
@@ -199,16 +201,36 @@
       <ul id="log"></ul>
     </div>
     <div class="tape-card">
-      <h4>add a track</h4>
-      <form id="add-form">
-        <input name="url" type="url" placeholder="https://… .mp3 stream url" required>
-        <input name="title" placeholder="title (optional)">
-        <div class="row"><select name="genre" id="add-genre"></select><button class="mini" type="submit">add</button></div>
-        <p class="hint">or drop files into <code>library/&lt;genre&gt;/</code></p>
-        <p class="hint err" id="add-msg"></p>
-      </form>
+      <h4>played</h4>
+      <ol id="played"></ol>
     </div>
   </section>
+
+  <!-- staff feedback: quick reasons + note, saved with the time, song, volume and room at that moment -->
+  <dialog class="tape-card add-dialog fb-dialog" id="fb-dialog" aria-labelledby="fb-title">
+    <div class="add-head"><h4 id="fb-title">feedback</h4><button class="add-close" id="fb-close" aria-label="close">×</button></div>
+    <p class="fb-now" id="fb-now"></p>
+    <form id="fb-form">
+      <div class="fb-tags" id="fb-tags"></div>
+      <textarea name="note" rows="2" placeholder="what's off? (optional)"></textarea>
+      <div class="row"><input name="who" placeholder="your name (optional)" autocomplete="name"><button class="mini" type="submit">send</button></div>
+      <p class="hint err" id="fb-msg"></p>
+    </form>
+    <div class="fb-recent-head"><h4>recent</h4><a class="hint" href="/api/feedback.csv" download>download all (csv)</a></div>
+    <ul class="fb-recent" id="fb-recent"></ul>
+  </dialog>
+
+  <!-- add a track: opened from the "add track" key next to eq -->
+  <dialog class="tape-card add-dialog" id="add-dialog" aria-labelledby="add-title">
+    <div class="add-head"><h4 id="add-title">add a track</h4><button class="add-close" id="add-close" aria-label="close">×</button></div>
+    <form id="add-form">
+      <input name="url" type="url" placeholder="https://… .mp3 stream url" required>
+      <input name="title" placeholder="title (optional)">
+      <div class="row"><select name="genre" id="add-genre"></select><button class="mini" type="submit">add</button></div>
+      <p class="hint">or drop files into <code>library/&lt;genre&gt;/</code></p>
+      <p class="hint err" id="add-msg"></p>
+    </form>
+  </dialog>
 
   <p class="foot" id="foot">connecting…</p>
 </main>

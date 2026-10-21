@@ -12,6 +12,7 @@ Queue safety rules (learned the hard way on a real Sonos):
   - only count a play once the speaker reports it PLAYING.
 """
 
+import json
 import logging
 import socket
 import threading
@@ -57,6 +58,9 @@ class DJ:
         # per-venue calibration lives beside the state file (data/calibration.json, or mock_calibration.json)
         cal_name = state_file.name.replace("state", "calibration") if "state" in state_file.name else "calibration.json"
         self.calibration_store = JsonFile(state_file.with_name(cal_name), {})
+        # staff feedback: one JSON object per line, appended (data/feedback.jsonl, or mock_feedback.jsonl)
+        self.feedback_file = state_file.with_name(state_file.name.replace("state.json", "feedback.jsonl"))
+        self.feedback_lock = threading.Lock()
         saved = self.store.data.get("inputs") or {"genres": cfg["default_genres"]}
         self.inputs = brain.Inputs.from_dict(saved)
         self.votes = self.store.data.setdefault("votes", {})
@@ -86,13 +90,29 @@ class DJ:
         self.stopped_ticks = 0
         self.foreign_ticks = 0
         self.last_skip = 0.0
+        self.main_fails = 0       # ticks in a row the main room hasn't answered (see safe_tick)
+        self.volume_set = {}      # ip -> the volume the DJ last set or saw, to notice changes made in the Sonos app
+        self.song_volume = None   # the level for the song that's playing (changes between songs; see _song_volume)
+        self._last_snapshot = None
         self.dj_moved = 0.0       # when the DJ itself last changed track (skip, jump, start), to tell its moves from others'
         self.last_daypart = None
         self.last_quiet = None   # inside quiet_hours at the last tick (None: not checked yet)
         self.status = {}
         self.speakers = []
         self.volumes = {}
+        gone = [g for g in list(self.inputs.genres) + list(self.inputs.picks) if g not in cfg["genres"]]
+        if gone:  # a genre removed from config.json (e.g. Jazzy Cafe): its key can't stay lit
+            self.inputs.genres = [g for g in self.inputs.genres if g in cfg["genres"]] or list(cfg["default_genres"])
+            self.inputs.picks = {g: v for g, v in self.inputs.picks.items() if g in cfg["genres"]}
         self.targets = self.compute()
+        if "picks" not in saved and self.inputs.moods:
+            # Before picks existed, keys lit with moods on did nothing once the library was full (e.g. an old tap on
+            # Dark Academia): switch them off so the keys show what really plays, rather than suddenly playing them.
+            stale = [g for g in self.inputs.genres if g not in cfg["default_genres"]]
+            if stale:
+                self.inputs.genres = [g for g in self.inputs.genres if g not in stale] or list(cfg["default_genres"])
+                self._stale_picks = stale
+            self.targets = self.compute()
         self.events = deque(maxlen=14)
         self.prefetcher = None
         self._cache_names = {}
@@ -107,6 +127,11 @@ class DJ:
         self._restore_main()
         self.base_url = self._base_url()
         self.event("DJ ready" + ("" if player.live else " (mock speakers)"))
+        if getattr(self, "_stale_picks", None):
+            names = self.library.genres()
+            self.event("genre keys switched off (they weren't playing with auto on): "
+                       + ", ".join(names.get(g, g) for g in self._stale_picks))
+            self.save()
 
     # -- helpers ---------------------------------------------------------------
     def event(self, msg):
@@ -257,15 +282,18 @@ class DJ:
         by_genre = {g: self.library.in_genre(g) for g in tgt["weights"]}
         recent = {h["id"] for h in list(self.history)[-60:]} | set(self.queued_ids()) | set(exclude)
         genres = self._recent_genres()
+        q = self.queued_ids()
+        prev = self.library.get(q[-1]) if q else None  # the song the next pick will follow
         out = []
         for _ in range(n):
             t = brain.pick(by_genre, tgt, self.meta.energy, self.votes, recent, self.available, bpm_of=self.bpm_of,
-                           stay_in=self._stay_in(genres))
+                           stay_in=self._stay_in(genres), prev=prev)
             if not t:
                 break
             recent.add(t.id)
             genres.append(t.genre)
             out.append(t)
+            prev = t
         if len(out) < n:
             self.event("no playable tracks for this mood" if not out else "running low on tracks")
         return out
@@ -438,6 +466,7 @@ class DJ:
         threading.Thread(target=self._fade_skip, daemon=True, name="fade-skip").start()
 
     def _fade_skip(self):
+        start = None
         try:
             start = self.player.group_volume()
             for f in (0.7, 0.45, 0.25, 0.1):
@@ -458,6 +487,18 @@ class DJ:
             except Exception:
                 pass
         finally:
+            # On bad Wi-Fi the fade back up can fail half way and leave the rooms quiet: make sure it's restored.
+            for _ in range(3):
+                if start is None:
+                    break
+                try:
+                    if self.player.group_volume() < start - 1:
+                        self.player.set_group_volume(start)
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            self.volume_set = {}
+            self.dj_moved = time.time()
             self.fading = False
 
     def vote(self, direction, tid=None):
@@ -646,9 +687,12 @@ class DJ:
                 if routed.get("occupancy_enabled") is False:  # occ key off: hand occupancy back to the feed
                     self.live.clear_override("occupancy")
                     changed.add("occupancy")
+            patch = self._track_picks(patch)
             if patch.get("auto") is True and not self.inputs.auto:
                 # auto volume back on: back to the schedule's level for this time (drop any old trim)
-                patch = {**patch, "volume_trim": 0}
+                patch = {**patch, "volume_trim": 0, "manual_since": None}
+            elif patch.get("auto") is False or ("manual_volume" in patch and not self.inputs.auto):
+                patch = {**patch, "manual_since": time.time()}  # a hand-set volume holds for a while, then expires
             for k, v in patch.items():
                 if k not in brain.Inputs.__dataclass_fields__:
                     continue
@@ -743,7 +787,13 @@ class DJ:
     def speaker_action(self, action, ip=None, value=None):
         with self.lock:
             p = self.player
-            rooms = {s["ip"]: s for s in p.speakers()}
+            # The room list from the last tick is fresh enough to act on; asking every room again (two calls each,
+            # 6 s per slow room) is what made the switches feel stuck. Mute and the room fader don't regroup anything.
+            rooms = {s["ip"]: s for s in self.speakers}
+            if ip is not None and ip not in rooms:
+                rooms = {s["ip"]: s for s in p.speakers()}
+            if ip is not None and ip not in rooms and p.answers(ip):  # discovery missed it, but it's there
+                rooms = {s["ip"]: s for s in p.speakers()}
             if ip is not None and ip not in rooms:
                 raise ValueError("unknown speaker - press scan")
             if action == "party":
@@ -762,12 +812,15 @@ class DJ:
                 self._set_room_offset(rooms[ip]["name"], value)
             elif action == "mute":
                 p.set_mute(ip, bool(value))
+                self.speakers = [dict(s, muted=bool(value)) if s["ip"] == ip else s for s in self.speakers]
                 self.event(f"{rooms[ip]['name']} {'muted' if value else 'unmuted'}")
+                return
             elif action == "discover":
                 p.discover()
             else:
                 raise ValueError(f"unknown action {action!r}")
-            self.speakers = p.speakers()
+            if action != "offset":
+                self.speakers = p.speakers()
             if self.running:
                 self._apply_volume(max_step=100)
                 if action in ("join", "party", "main"):
@@ -866,6 +919,16 @@ class DJ:
             except Exception as e:  # tone is a nicety: never let it stop the music
                 log.warning("couldn't set EQ on %s: %s", sp["name"], e)
 
+    def _ensure_crossfade(self):
+        if not self.cfg.get("crossfade") or (self.status or {}).get("uri", "").find(":8330/") < 0 and self.player.live:
+            return  # off in config, or the queue isn't the source (crossfade can't be set then)
+        try:
+            if self.player.ensure_crossfade():
+                main = next((s["name"] for s in self.speakers if s.get("coordinator")), "the main room")
+                self.event(f"crossfade was off on {main} - switched back on")
+        except Exception as e:
+            log.warning("couldn't check crossfade: %s", e)
+
     def _adopt_eq(self):
         """Take the speakers' current tone as the starting point: the main room's becomes the venue's,
         and any room that differs keeps its own as a trim. So turning the DJ on never changes the sound."""
@@ -894,10 +957,45 @@ class DJ:
         t = self.library.get(self.now_id) if self.now_id else None
         return self.cfg.get("genres", {}).get(t.genre, {}).get("volume_offset", 0) if t else 0
 
-    def _apply_volume(self, max_step=2):
-        target = self.targets["volume"] + (self.genre_volume_offset() if self.inputs.auto else 0)
+    APP_CHANGE = 3  # a jump this big on the main room that the DJ didn't make = someone used the Sonos app
+
+    def _song_volume(self, live, max_step):
+        """The level for the song that's playing: set when a song starts (moving at most volume_step_per_song from
+        the last song's), so occupancy/weather/style changes land between songs instead of mid-song. A staff change
+        (max_step >= 100: slider, room fader, button) applies straight away."""
+        if max_step >= 100 or self.song_volume is None:
+            self.song_volume = live
+        return self.song_volume
+
+    def _next_song_volume(self):
+        """A new song started: move toward the current target, gently."""
+        if self.song_volume is None:
+            return
+        offset = self.genre_volume_offset() if self.inputs.auto else 0
+        live = self.targets["volume"] + offset
+        step = self.cfg.get("volume_step_per_song", 4)
+        new = max(self.song_volume - step, min(self.song_volume + step, live))
+        if new != self.song_volume:
+            log.info("volume: %d for this song (was %d, target %d)", new, self.song_volume, live)
+            self.song_volume = new
+
+    def _apply_volume(self, max_step=2, other_source=False):
         names = {s["ip"]: s["name"] for s in self.speakers}
         vols = self.player.volumes()
+        main = next((s["ip"] for s in self.speakers if s.get("coordinator")), None)
+        # Staff turned it up/down in the Sonos app: hold their level (like the controller's slider) instead of undoing it.
+        if max_step < 100 and not self.fading and time.time() - self.dj_moved > 20 and main in vols and main in self.volume_set \
+                and abs(vols[main] - self.volume_set[main]) >= self.APP_CHANGE:
+            level = vols[main] - self.room_offset(names.get(main, ""))
+            self.inputs.auto, self.inputs.manual_volume, self.inputs.manual_since = False, int(level), time.time()
+            self.save()
+            self.targets = self.compute()
+            self.song_volume = self.targets["volume"]
+            self.event(f"volume set to {vols[main]} in the Sonos app - holding it until the next time slot "
+                       f"(max {self.cfg.get('manual_volume_max_hours', 3):g} h)")
+        offset = self.genre_volume_offset() if self.inputs.auto and not other_source else 0
+        live = self.targets["volume"] + offset
+        target = live if other_source else self._song_volume(live, max_step)
         for ip, cur in vols.items():
             want = target + self.room_offset(names.get(ip, ""))
             want = max(self.cfg["min_volume"], min(self.cfg["max_volume"], want))
@@ -905,7 +1003,54 @@ class DJ:
                 step = max(-max_step, min(max_step, want - cur))
                 self.player.set_volume(ip, cur + step)
                 vols[ip] = cur + step
+        self.volume_set = dict(vols)
         self.volumes = vols
+
+    def _track_picks(self, patch):
+        """A genre switched on while the mood styles are on is a staff pick for the current slot (it gets
+        moods.pick_share until the slot ends). Switching moods off clears them."""
+        if patch.get("moods") is False:
+            return {**patch, "picks": {}}
+        if "genres" not in patch or not self.inputs.moods:
+            return patch
+        part = self.targets.get("mood_daypart")
+        old, new = set(self.inputs.genres), set(patch["genres"])
+        picks = {g: p for g, p in (self.inputs.picks or {}).items() if g in new}
+        for g in new - old:
+            picks[g] = part
+        return {**patch, "picks": picks}
+
+    def _expire_picks(self, part):
+        """The mood slot changed: genres staff switched on in the last one go back off."""
+        picks = {g: p for g, p in (self.inputs.picks or {}).items() if p != part}
+        if not picks:
+            return
+        genres = [g for g in self.inputs.genres if g not in picks] or list(self.cfg["default_genres"])
+        self.inputs.genres, self.inputs.picks = genres, {}
+        self.save()
+        self.targets = self.compute()
+        names = self.library.genres()
+        self.event("genre picks ended with the time slot: " + ", ".join(names.get(g, g) for g in picks))
+
+    def _check_manual_hold(self):
+        """A hand-set volume (controller slider or Sonos app) lasts until the next time slot or
+        manual_volume_max_hours, whichever comes first; then the schedule takes over again."""
+        i = self.inputs
+        if i.auto:
+            return
+        if not i.manual_since:  # set before holds expired (older state): start the clock now
+            i.manual_since = time.time()
+            self.save()
+            return
+        hours = self.cfg.get("manual_volume_max_hours", 3)
+        if time.time() - i.manual_since > hours * 3600:
+            self._back_to_auto(f"hand-set volume ended after {hours:g} h")
+
+    def _back_to_auto(self, why):
+        self.inputs.auto, self.inputs.volume_trim, self.inputs.manual_since = True, 0, None
+        self.save()
+        self.targets = self.compute()
+        self.event(f"{why} - volume back on the schedule")
 
     # -- following the speaker --------------------------------------------------------
     def refresh_status(self):
@@ -935,6 +1080,7 @@ class DJ:
                 self.upcoming = self.upcoming[self.upcoming.index(cur) + 1:]
             self._note_early_end(self.now_id)
             self._set_now(cur)
+            self._next_song_volume()
             self._count_play()
             if cur in self.skip_on_start:
                 self.skip_on_start.discard(cur)
@@ -996,13 +1142,20 @@ class DJ:
             self._check_daypart()
             if self._check_quiet_hours(st):
                 return
+            self._check_manual_hold()
             self._follow_live()
             if not self.running:
-                if n % 5 == 0:
+                # Another app (staff Spotify) is playing: keep the room at the scheduled level anyway.
+                if self.cfg.get("auto_volume_other_sources", True) and st["state"] == "PLAYING" and st.get("uri") \
+                        and not self.fading and not self.paused:
+                    if n % 5 == 0:  # no song changes to wait for: drift 1 step every ~10 s
+                        self._apply_volume(max_step=1, other_source=True)
+                elif n % 5 == 0:
                     self.volumes = self.player.volumes()
                 return
             if n % 30 == 0:  # about once a minute
                 self._apply_eq()
+                self._ensure_crossfade()
 
             cur = self.uri_map.get(st["uri"])
             state = st["state"]
@@ -1054,7 +1207,11 @@ class DJ:
         dp = (self.targets["daypart"], self.targets.get("mood_daypart"))
         if self.last_daypart and dp != self.last_daypart:
             new_part = dp[0] != self.last_daypart[0]
+            if dp[1] != self.last_daypart[1]:
+                self._expire_picks(dp[1])
             msg = f"now {dp[0]}" if new_part else f"now {(dp[1] or '').replace('_', ' ')} music"
+            if new_part and not self.inputs.auto:
+                self._back_to_auto("new time slot")
             if new_part and self.cfg.get("reset_trims_on_daypart", True) and (self.inputs.energy_trim or self.inputs.volume_trim):
                 self.inputs.energy_trim, self.inputs.volume_trim = 0.0, 0
                 self.save()
@@ -1124,20 +1281,63 @@ class DJ:
                     self.resume()
                 except Exception as e:
                     log.warning("couldn't resume yet: %s", e)
-            try:
-                self.tick(n)
-                if self.store.data.get("paused") != self.paused and not self.wizard:
-                    self.save()  # remember a pause (from here or the Sonos app) in case of a power cut
-                self.player.error = None
-            except Exception as e:
-                msg = str(e)
-                if "Timeout" in msg or "Connection" in msg or "Max retries" in msg:
-                    msg = f"can't reach speakers at {self.player.anchor_ip} - is this computer on the Sonos Wi-Fi?"
-                self.player.error = msg[:160]
-                if n % 30 == 0:
-                    log.warning("tick failed: %s", e)
+            self.safe_tick(n)
             n += 1
             time.sleep(interval)
+
+    MAIN_FAILS_BEFORE_FAILOVER = 3  # ticks in a row the main room doesn't answer (each can take 10-20 s)
+
+    def safe_tick(self, n):
+        try:
+            self.tick(n)
+            if self.store.data.get("paused") != self.paused and not self.wizard:
+                self.save()  # remember a pause (from here or the Sonos app) in case of a power cut
+            self.player.error = None
+            self.main_fails = 0
+        except Exception as e:
+            msg = str(e)
+            anchor = self.player.anchor_ip
+            unreachable = "Timeout" in msg or "Connection" in msg or "Max retries" in msg
+            if unreachable:
+                msg = f"can't reach speakers at {anchor} - is this computer on the Sonos Wi-Fi?"
+            self.player.error = msg[:160]
+            if n % 30 == 0:
+                log.warning("tick failed: %s", e)
+            # The main room itself stopped answering (power cut, Wi-Fi drop): after a few tries, lead from another room.
+            leaders = {anchor, getattr(self.player, "ctrl_ip", anchor)}  # the main room, or the room leading its group
+            dead = next((ip for ip in leaders if unreachable and f"'{ip}'" in str(e)), None)
+            self.main_fails = self.main_fails + 1 if dead else 0
+            if self.main_fails >= self.MAIN_FAILS_BEFORE_FAILOVER:
+                self.main_fails = 0
+                self._failover(dead)
+
+    def _failover(self, old_ip):
+        """Switch to another room that's on the network and carry on playing (start-up does the same)."""
+        with self.lock:
+            old = next((s["name"] for s in self.speakers if s["ip"] == old_ip), old_ip)
+            was_in_group = [s["ip"] for s in self.speakers if s["in_group"] and s["ip"] != old_ip]
+            try:
+                new_ip = self.player.failover(old_ip, prefer=was_in_group)
+            except Exception as e:
+                log.warning("failover from %s failed: %s", old, e)
+                return False
+            if not new_ip:
+                self.event(f"main room {old} isn't answering and no other speaker was found")
+                return False
+            self._main_changed(new_ip)
+            self.speakers = self.player.speakers()
+            new = next((s["name"] for s in self.speakers if s["ip"] == new_ip), new_ip)
+            self.event(f"main room {old} stopped answering - {new} took over")
+            for ip in was_in_group:  # rooms that were playing with the DJ rejoin the new main room
+                if ip != new_ip and ip in {s["ip"] for s in self.speakers}:
+                    try:
+                        self.player.join(ip)
+                    except Exception as e:
+                        log.warning("couldn't rejoin %s: %s", ip, e)
+            self.speakers = self.player.speakers()
+            if self.running and not self.paused and not self.quiet_now():
+                self.start()  # the old main room held the queue: start afresh on the new one
+            return True
 
     def health_loop(self):
         was = self.online
@@ -1175,6 +1375,62 @@ class DJ:
                 "up": v.get("up", 0), "down": v.get("down", 0), "plays": v.get("plays", 0),
                 "cached": self.cache.has(t), "gain_db": self.cache.gain(t)}
 
+    FEEDBACK_TAGS = ("too loud", "too quiet", "wrong style", "bad song", "too energetic", "too sleepy", "other")
+
+    def add_feedback(self, tags=(), note="", who=""):
+        """Log a staff note with what was happening at that moment, so it can be used to tune the DJ."""
+        tags = [t for t in (tags or []) if t in self.FEEDBACK_TAGS]
+        note, who = (note or "").strip()[:500], (who or "").strip()[:40]
+        if not tags and not note:
+            raise ValueError("pick a reason or write a note")
+        # read without the DJ's lock: saving a note must never wait on a slow speaker
+        i, t, st = self.effective_inputs(), self.targets, self.status or {}
+        vols = [v for v in (self.volumes or {}).values() if v is not None]
+        now = self.track_info(self.now_id) if self.now_id else None
+        entry = {
+            "at": datetime.now().isoformat(timespec="seconds"), "tags": tags, "note": note, "who": who,
+            "song": now and now["title"], "song_id": self.now_id, "style": now and now["genre_label"],
+            "song_energy": now and now["energy"], "song_bpm": now and now["bpm"],
+            "volume_target": t.get("volume"), "volume_speakers": round(sum(vols) / len(vols)) if vols else None,
+            "auto_vol": i.auto, "energy_target": t.get("energy"), "daypart": t.get("daypart"),
+            "occupancy": i.occupancy if i.occupancy_enabled else None, "weather": i.weather, "mode": self.mode,
+            "playing": self.running and not self.paused and st.get("state") == "PLAYING",
+        }
+        with self.feedback_lock:
+            self.feedback_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.feedback_file, "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self.event("feedback: " + ", ".join(tags + ([note[:40]] if note else [])))
+        return entry
+
+    def feedback(self, limit=None):
+        """Logged feedback, newest first."""
+        with self.feedback_lock:
+            if not self.feedback_file.exists():
+                return []
+            rows = []
+            for line in self.feedback_file.read_text().splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        rows.reverse()
+        return rows[:limit] if limit else rows
+
+    def _played(self, n=15):
+        """The last songs played, newest first, for the controller's play history."""
+        out = []
+        for h in list(self.history)[-n:][::-1]:
+            t = self.library.get(h["id"])
+            v = self.votes.get(h["id"], {})
+            when = datetime.fromtimestamp(h["at"])
+            at = when.strftime("%H:%M" if when.date() == datetime.now().date() else "%a %H:%M")
+            out.append({"id": h["id"], "at": at,
+                        "title": t.title if t else h["id"].rsplit("/", 1)[-1],
+                        "genre_label": self.library.genres().get(t.genre, t.genre) if t else "",
+                        "up": v.get("up", 0), "down": v.get("down", 0)})
+        return out
+
     def _calibration_snapshot(self):
         saved = self.calibration
         out = {"venue": self.live.cfg.get("venue_name") or self.live.cfg.get("venue"),
@@ -1204,6 +1460,21 @@ class DJ:
         return {"new": new, "order": round(order + (1 - best), 3)}  # the bigger share comes first within a slot
 
     def snapshot(self):
+        """The controller's view. If the DJ is busy waiting on a slow speaker, answer straight away with the last
+        view (marked busy) instead of freezing every device that polls."""
+        if self.lock.acquire(timeout=0.5):
+            try:
+                self._last_snapshot = self._snapshot()
+            finally:
+                self.lock.release()
+            return self._last_snapshot
+        if not self._last_snapshot:
+            with self.lock:
+                self._last_snapshot = self._snapshot()
+            return self._last_snapshot
+        return {**self._last_snapshot, "events": list(self.events), "busy": True}
+
+    def _snapshot(self):
         with self.lock:
             lib = self.library.all()
             genres = self.library.genres()
@@ -1249,7 +1520,10 @@ class DJ:
                 "cache": {"files": len(self.cache.names), "mb": round(self.cache.usage_mb()),
                           "analysed": self.meta.count(), "tracks": len(lib)},
                 "events": list(self.events),
+                "played": self._played(),
                 "calibration": self._calibration_snapshot(),
                 "limits": {"min_volume": self.cfg["min_volume"], "max_volume": self.cfg["max_volume"],
+                           "manual_volume_max_hours": self.cfg.get("manual_volume_max_hours", 3),
+                           "pick_share": (self.cfg.get("moods") or {}).get("pick_share", 0.3),
                            "room_offset_steps": self.room_offset_steps()},
             }

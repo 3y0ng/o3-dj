@@ -43,3 +43,35 @@ def test_nothing_discovered_still_tries_the_configured_room(monkeypatch):
     p = SonosPlayer("1.136")
     p.discover()
     assert p.anchor_ip == "1.136" and direct == ["1.136"]
+
+
+def test_nothing_discovered_falls_back_to_a_network_scan(monkeypatch):
+    painting = FakeZone("Painting", "1.205")
+    painting.group = FakeGroup([painting])
+    direct = []
+    mod = fake_soco([], direct)
+    mod.discovery = types.SimpleNamespace(scan_network=lambda **kw: {painting})
+    monkeypatch.setitem(sys.modules, "soco", mod)
+    p = SonosPlayer("1.136")  # Office: offline, and multicast discovery found nothing
+    assert p.discover() == 1
+    assert p.anchor_ip == "1.205" and not direct
+
+
+class DeadZone(FakeZone):
+    @property
+    def player_name(self):
+        raise TimeoutError("Read timed out")
+
+    @player_name.setter
+    def player_name(self, v):
+        pass
+
+
+def test_a_room_that_dropped_off_doesnt_break_the_room_list(monkeypatch):
+    painting = FakeZone("Painting", "1.205")
+    painting.group = FakeGroup([painting])
+    monkeypatch.setitem(sys.modules, "soco", fake_soco([painting], []))
+    p = SonosPlayer("1.205")
+    p.discover()
+    p.zones["1.94"] = DeadZone("x", "1.94")   # Cafe Entrance, gone quiet since it was seen
+    assert [r["name"] for r in p.speakers()] == ["Painting"]

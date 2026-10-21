@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Dark Academia 68 B",
+ "genre": "dark_academia",
+ "style": "dark_academia",
+ "bpm": 68,
+ "vocals": false,
+ "prompt": "dark academia piano, chill, cosy cafe, 68 bpm, instrumental",
+ "plan": "pro",
+ "commercial": true,
+ "gain_db": 0.0,
+ "hash": "4425ee573080",
+ "imported_from": "O3 Dark Academia 68 B.m4a",
+ "created": "2026-10-07T07:26:32+00:00"
+}

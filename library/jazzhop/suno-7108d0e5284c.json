@@ -1,0 +1,15 @@
+{
+ "source": "suno",
+ "title": "O3 Jazz-hop 96 D",
+ "genre": "jazzhop",
+ "style": "jazzhop",
+ "bpm": 96,
+ "vocals": false,
+ "prompt": "upbeat japanese jazz-hop, chill, cosy cafe, 96 bpm, instrumental",
+ "plan": "premier",
+ "commercial": true,
+ "gain_db": -1.6,
+ "hash": "7108d0e5284c",
+ "imported_from": "O3 Jazz-hop 96 D.mp3",
+ "created": "2026-10-10T15:20:15+00:00"
+}

@@ -85,10 +85,6 @@
         "distortion"
       ],
       "suno_settings": {
-        "weirdness": [
-          45,
-          65
-        ],
         "style_influence": 70,
         "variety": "High"
       }
@@ -125,13 +121,7 @@
         "https://www.youtube.com/watch?v=DCt-k9DCWsQ"
       ],
       "notes": "Tried 30 Sep: good, keep.",
-      "duration": "6:00",
-      "suno_settings": {
-        "weirdness": [
-          35,
-          60
-        ]
-      }
+      "duration": "6:00"
     },
     "ambient_dream": {
       "label": "Ambient Dream",
@@ -148,13 +138,7 @@
         "https://www.youtube.com/watch?v=LIKhAQlCbfI"
       ],
       "notes": "Tried 30 Sep: good, keep.",
-      "duration": "6:00",
-      "suno_settings": {
-        "weirdness": [
-          35,
-          60
-        ]
-      }
+      "duration": "6:00"
     },
     "electronic_lofi": {
       "label": "Electronic Lofi",
@@ -168,14 +152,18 @@
       "references": [
         "https://suno.com/song/8adeb1e7-1f98-41e0-aa02-152b2f5f18fc"
       ],
-      "notes": "6 Oct: liked ('Cloudy Afternoon Soul'). Made by hand around 110 bpm with only 'beat drop' excluded. Plays 30% of new music on clear afternoons (Ghibli Lofi 50%, Whimsy Fantasy 20%). The two prompts rotate.",
+      "notes": "6 Oct: liked ('Cloudy Afternoon Soul'). Made by hand around 110 bpm with only 'beat drop' excluded. Plays 30% of new music on clear afternoons (Ghibli Lofi 50%, Whimsy Fantasy 20%). The two prompts rotate. 10 Oct: a lo-fi house prompt added as a minor option (`minor_prompts`, about 1 generation in 5); it asks for its own four-on-the-floor kick and 110 bpm, so use it as written.",
       "prompts": [
         "electronic soul deep house, steady deep-house pulse, analog synth chorus drifting softly through warm tape haze, mellow electric bass under a hypnotic lo-fi drum machine and soft, nostalgic synth layers",
         "ghibli lofi touch, late-night organic deep house beats, synthwave soul, minor key, moody analog synths, mellow electric bass, hypnotic lofi drum machine beat, nostalgic chillwave atmosphere"
       ],
       "exclude_only": [
         "beat drop"
-      ]
+      ],
+      "minor_prompts": [
+        "Chill lo-fi house, 110bpm, energetic but unobtrusive study groove, steady four-on-the-floor kick with crisp restrained claps and shuffled hi-hats, warm rounded bass, chopped Rhodes chords and small tape-worn synth motifs. Keep the pulse consistent and low-distraction; develop through subtle layer changes, a brief breakdown with filtered drums, then return to the groove. Instrumental, soft saturation, gentle vinyl texture, controlled highs and an even mix."
+      ],
+      "minor_share": 0.2
     }
   },
   "pilot": {
@@ -257,9 +245,9 @@
   "weirdness": {
     "vary": true,
     "default": [
-      50,
-      80
+      30,
+      65
     ],
-    "_about": "Change Weirdness on every generation, spread across the style's range, so takes differ. Below 50 is safer and more typical (suits calm styles, where surprises are jarring); above 50 adds variety and unusual instruments. Style Influence stays at the style's value."
+    "_about": "Change Weirdness on every generation, spread across 30-65 for every style, so takes differ. 50 is Suno's default; 0 is the most typical take of the prompt and 100 the most experimental. Tested 10 Oct on Electronic Lofi at 20 / 50 / 80: 80 was too much. Style Influence stays at the style's value."
   }
 }

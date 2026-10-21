@@ -4,7 +4,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const GENRE_COLORS = {
-  chill: "#3d8bff", jazzy_cafe: "#ff6b2c", asian: "#2fd37f",
+  chill: "#3d8bff", asian: "#2fd37f",
   // timeslot styles, warm morning to cool night
   bossa_house: "#ffc83d", jazzhop: "#e0a458", lofi_indie: "#5ec8c8", electronic_lofi: "#c77dff",
   whimsy_fantasy: "#7a9e7e", indie_lofi_fantasy: "#ff8fa3", dark_academia: "#8a5a44", ambient_dream: "#6c7bd9",
@@ -13,6 +13,7 @@ const EXTRA_COLORS = ["#f1f1ee", "#ffd23d", "#c77dff", "#ff4f8b"];
 const WEATHER_GLYPH = { clear: "☀ clear", cloudy: "☁ cloudy", rain: "☂ rain" };
 
 let S = null;               // last snapshot
+const votedNow = new Set();  // songs this device voted on during their current play
 let pending = {};           // input changes not yet sent
 let sendTimer = null;
 let lastInteraction = 0;    // ignore polled inputs briefly after local edits
@@ -159,7 +160,7 @@ const FADERS = {
       }
       // Setting the volume by hand takes over from the schedule until auto vol is switched back on.
       setInputs({ auto: false, manual_volume: v });
-      popup("volume", v, "manual · auto vol off", "var(--blue)");
+      popup("volume", v, `held until the next time slot (max ${(S.limits && S.limits.manual_volume_max_hours) || 3} h)`, "var(--blue)");
     },
     reset() {
       if (calibrating()) { setInputs({ volume_trim: 0 }, 0); return popup("volume", "reset", "calibrating", "var(--blue)"); }
@@ -411,9 +412,20 @@ function initKeys() {
   $("#k-skip").addEventListener("click", () => {
     const wiz = S.calibration && S.calibration.wizard;
     if (wiz && !wiz.proposal) return act("/api/calibration", { action: "another" });
+    popup("skip", "▶▶", "next song coming up", "var(--white)");
     act("/api/control", { action: "skip" });
   });
-  $("#k-up").addEventListener("click", () => act("/api/control", { action: "up" }));
+  // Votes say what they did: one per song per play; "not this" also skips.
+  const vote = (dir) => {
+    const n = S && S.now;
+    if (!n) return popup(dir === "up" ? "love it" : "not this", "—", "nothing playing", "var(--dim)");
+    if (votedNow.has(n.id)) return popup("already voted", dir === "up" ? "▲" : "▼", "one vote per song each time it plays", "var(--dim)");
+    votedNow.add(n.id);
+    popup(dir === "up" ? "loved" : "downvoted", dir === "up" ? "▲" : "▼",
+      dir === "up" ? `${n.title} · plays more often` : `${n.title} · skipping it`, dir === "up" ? "var(--green)" : "var(--red)");
+    act("/api/control", { action: dir });
+  };
+  $("#k-up").addEventListener("click", () => vote("up"));
   $("#k-listen").addEventListener("click", () => {
     if (!S) return;
     if (listenOn(S) && listen.blocked) return syncListen(S);  // the browser was waiting for a tap
@@ -423,7 +435,7 @@ function initKeys() {
     syncListen(S);
     popup("listen", next, next === "on" ? "playing on this device, in step with the speakers" : "this device is quiet", "var(--green)");
   });
-  $("#k-down").addEventListener("click", () => act("/api/control", { action: "down" }));
+  $("#k-down").addEventListener("click", () => vote("down"));
   $("#k-party").addEventListener("click", () => {
     const others = S.speakers.filter((sp) => !sp.in_group).map((sp) => sp.name);
     if (!others.length) return;
@@ -433,6 +445,14 @@ function initKeys() {
   $("#k-scan").addEventListener("click", () => act("/api/speakers", { action: "discover" }));
   $("#k-eq").addEventListener("click", () => (eqMode.on ? exitEq() : enterEq()));
 
+  initFeedback();
+  const addDialog = $("#add-dialog");
+  $("#k-add").addEventListener("click", () => { $("#add-msg").textContent = ""; addDialog.showModal(); addDialog.querySelector("input").focus(); });
+  $("#add-close").addEventListener("click", () => addDialog.close());
+  addDialog.addEventListener("click", (e) => {  // a click on the backdrop, outside the card
+    const r = addDialog.getBoundingClientRect();
+    if (e.target === addDialog && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) addDialog.close();
+  });
   $("#add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target, msg = $("#add-msg");
@@ -440,16 +460,87 @@ function initKeys() {
       render(await api("/api/tracks", { url: f.url.value, title: f.title.value, genre: f.genre.value }));
       msg.textContent = "added ✓";
       f.url.value = f.title.value = "";
+      setTimeout(() => addDialog.close(), 900);
     } catch (err) {
       msg.textContent = err.message;
     }
   });
 }
 
+// ── staff feedback ─────────────────────────────────────────────────
+const FB_WHO = "o3dj.feedback.who";
+function fbRecentHTML(rows) {
+  return rows.length ? rows.map((r) => {
+    const when = new Date(r.at), today = when.toDateString() === new Date().toDateString();
+    const t = (today ? "" : when.toLocaleDateString(undefined, { weekday: "short" }) + " ") + r.at.slice(11, 16);
+    const ctx = [r.song, r.volume_target != null ? "vol " + r.volume_target : "", r.occupancy != null ? r.occupancy + "% full" : ""].filter(Boolean).join(" · ");
+    return `<li><b>${esc(t)}</b>${esc([r.tags.join(", "), r.note].filter(Boolean).join(" — "))}${r.who ? ` <span class="c-dim">(${esc(r.who)})</span>` : ""}<span class="m">${esc(ctx)}</span></li>`;
+  }).join("") : `<li class="empty-note">no feedback yet</li>`;
+}
+function initFeedback() {
+  const dlg = $("#fb-dialog"), form = $("#fb-form"), msg = $("#fb-msg");
+  const picked = new Set();
+  const load = async () => {
+    try {
+      const d = await api("/api/feedback?limit=20");
+      $("#fb-tags").innerHTML = d.tags.map((t) => `<button type="button" class="fb-tag" data-tag="${esc(t)}">${esc(t)}</button>`).join("");
+      $$(".fb-tag", dlg).forEach((b) => b.addEventListener("click", () => {
+        picked.has(b.dataset.tag) ? picked.delete(b.dataset.tag) : picked.add(b.dataset.tag);
+        b.classList.toggle("on", picked.has(b.dataset.tag));
+      }));
+      $("#fb-recent").innerHTML = fbRecentHTML(d.recent);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  $("#k-feedback").addEventListener("click", () => {
+    picked.clear(); form.reset(); msg.textContent = "";
+    try { form.who.value = localStorage.getItem(FB_WHO) || ""; } catch (e) { /* storage blocked */ }
+    const n = S && S.now, vols = Object.values((S && S.volumes) || {});
+    $("#fb-now").textContent = S ? `now: ${n ? n.title : "nothing playing"} · vol ${vols.length ? Math.round(avg(vols)) : S.targets.volume}` +
+      (S.inputs.occupancy_enabled ? ` · ${S.inputs.occupancy}% full` : "") + ` · ${fmtHour(S.targets.hour)}` : "";
+    load();
+    dlg.showModal();
+  });
+  $("#fb-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => {
+    const r = dlg.getBoundingClientRect();
+    if (e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) dlg.close();
+  });
+  const send = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (send.disabled) return;  // already sending: no doubles
+    try { localStorage.setItem(FB_WHO, form.who.value.trim()); } catch (err) { /* storage blocked */ }
+    send.disabled = true; send.textContent = "sending…"; msg.className = "hint"; msg.textContent = "";
+    try {
+      const d = await api("/api/feedback", { tags: [...picked], note: form.note.value, who: form.who.value });
+      $("#fb-recent").innerHTML = fbRecentHTML(d.recent);
+      $("#fb-recent li")?.classList.add("just-sent");
+      msg.className = "hint ok"; msg.textContent = "✓ sent — thanks! it's at the top of the list below";
+      send.textContent = "sent ✓";
+      picked.clear(); $$(".fb-tag", dlg).forEach((b) => b.classList.remove("on")); form.note.value = "";
+      setTimeout(() => { dlg.close(); popup("feedback", "✓", "sent — thanks", "var(--green)"); }, 1500);
+    } catch (err) {
+      msg.className = "hint err"; msg.textContent = "not sent: " + err.message + " — try again";
+    } finally {
+      setTimeout(() => { send.disabled = false; send.textContent = "send"; }, 1500);
+    }
+  });
+}
+
 function toggleGenre(key) {
   const set = new Set(S.inputs.genres);
-  if (set.has(key)) { if (set.size > 1) set.delete(key); } else set.add(key);
+  const adding = !set.has(key);
+  if (!adding) { if (set.size > 1) set.delete(key); } else set.add(key);
   setInputs({ genres: [...set] }, 0);
+  // With auto (time-of-day styles) on, a key switched on is a pick for this time slot only.
+  const label = ((S.genres[key] || {}).label || key).toLowerCase();
+  if (S.inputs.moods !== false && adding) {
+    const until = S.targets.mood_until;
+    const share = Math.round(((S.limits && S.limits.pick_share) || 0.3) * 100);
+    popup(label, `${share}%`, until != null ? `of the mix until ${fmtHour(until)}, then it switches off` : "of the mix this time slot", "var(--orange)");
+  } else if (!adding) {
+    popup(label, "off", S.inputs.moods !== false ? "back to the time-of-day mix" : "", "var(--dim)");
+  }
 }
 
 // ── render ──────────────────────────────────────────────────────────
@@ -555,8 +646,10 @@ function render(s, local = false) {
 
   const foot = $("#foot");
   if (!foot.classList.contains("bad")) {
-    foot.textContent = `${s.live ? "live sonos" : "mock speakers (silent)"} · speakers stream cache from ${s.health.base_url} · ${s.cache.mb} MB cached · ${s.health.prefetch}`;
+    foot.textContent = s.busy ? "⏳ waiting for a speaker to answer (slow Wi-Fi) · buttons still work, they'll apply in a moment"
+      : `${s.live ? "live sonos" : "mock speakers (silent)"} · speakers stream cache from ${s.health.base_url} · ${s.cache.mb} MB cached · ${s.health.prefetch}`;
   }
+  if (s.now && !votedNow.has("@" + s.now.id)) { votedNow.clear(); votedNow.add("@" + s.now.id); }  // new song: votes open again
 }
 
 function renderMode(s) {
@@ -766,10 +859,32 @@ function roomStrip(sp) {
     </div>`;
 }
 
+// Room switches show their new position straight away; the server confirms in the background (a slow speaker can
+// take seconds). Until the server's view agrees (or 20 s pass), the switch shows what was pressed.
+const pendingRoom = {};  // ip -> {muted?, in_group?, until}
+function roomView(sp) {
+  const p = pendingRoom[sp.ip];
+  if (!p) return sp;
+  const agrees = Object.keys(p).every((k) => k === "until" || sp[k] === p[k]);
+  if (agrees || Date.now() > p.until) { delete pendingRoom[sp.ip]; return sp; }
+  return { ...sp, ...p };
+}
+
+async function roomSend(sp, action, value, shows) {
+  if (shows) { pendingRoom[sp.ip] = { ...shows, until: Date.now() + 20000 }; renderRooms(S); }
+  try {
+    render(await api("/api/speakers", value === undefined ? { action, ip: sp.ip } : { action, ip: sp.ip, value }));
+  } catch (e) {
+    delete pendingRoom[sp.ip];
+    renderRooms(S);
+    flashFoot(e.message);
+  }
+}
+
 function roomAction(sp, what) {
   const inGroup = S.speakers.filter((x) => x.in_group);
-  const send = (action, value) => act("/api/speakers", value === undefined ? { action, ip: sp.ip } : { action, ip: sp.ip, value });
-  if (what === "mute") return send("mute", !sp.muted);
+  const send = (action, value, shows) => roomSend(sp, action, value, shows);
+  if (what === "mute") return send("mute", !sp.muted, { muted: !sp.muted });
   if (what === "main") {
     if (sp.coordinator) return popup("main", sp.name, "leads the group and holds the queue", "var(--green)");
     if (!sp.in_group && !confirm(`Make ${sp.name} the main room? It joins the DJ group, and anything it's playing now will stop.`)) return;
@@ -778,7 +893,7 @@ function roomAction(sp, what) {
   // on/off
   if (!sp.in_group) {
     if (!confirm(`Add ${sp.name} to the DJ group? Anything it's playing now will stop.`)) return;
-    return send("join");
+    return send("join", undefined, { in_group: true });
   }
   if (sp.coordinator) {
     const msg = inGroup.length > 1
@@ -786,7 +901,7 @@ function roomAction(sp, what) {
       : `${sp.name} is the only room playing. Switching it off pauses the music. Continue?`;
     if (!confirm(msg)) return;
   }
-  return send("leave");
+  return send("leave", undefined, sp.coordinator ? null : { in_group: false });
 }
 
 function setRoomOffset(ip, value) {
@@ -811,7 +926,7 @@ function initRoomStrip(el) {
   const ip = el.dataset.ip;
   $$("[data-act]", el).forEach((b) => b.addEventListener("click", () => {
     const sp = S.speakers.find((x) => x.ip === ip);
-    if (sp) roomAction(sp, b.dataset.act);
+    if (sp) roomAction(roomView(sp), b.dataset.act);
   }));
   // in eq mode, the room's plate picks it for tuning (tap again for all rooms)
   $(".ch-plate", el).addEventListener("click", () => {
@@ -845,7 +960,7 @@ function renderRooms(s) {
     wrap.innerHTML = s.speakers.map(roomStrip).join("");
     $$(".room", wrap).forEach(initRoomStrip);
   }
-  s.speakers.forEach((sp) => {
+  s.speakers.map(roomView).forEach((sp) => {
     const el = $(`.room[data-ip="${sp.ip}"]`, wrap);
     if (!el) return;
     const vol = s.volumes?.[sp.ip];
@@ -891,6 +1006,14 @@ function renderStrip(s) {
     up.innerHTML = items.length ? items.map((t) => `<li>
         <div class="t">${esc(t.title)}<span class="m">${esc(t.genre_label.toLowerCase())} · ${t.bpm ? Math.round(t.bpm) + " bpm" : "bpm ?"} · nrg ${t.energy ?? "?"}${t.cached ? " · cached" : ""}</span></div>
       </li>`).join("") : `<li class="empty-note">the dj picks the next tracks once it's playing</li>`;
+  }
+  const played = $("#played");
+  const psig = JSON.stringify(s.played || []);
+  if (played && played.dataset.sig !== psig) {
+    played.dataset.sig = psig;
+    played.innerHTML = (s.played || []).length ? s.played.map((p, k) => `<li class="${k === 0 && s.now && p.id === s.now.id ? "now" : ""}">
+        <b>${esc(p.at)}</b><div class="t">${esc(p.title)}<span class="m">${esc((p.genre_label || "").toLowerCase())}${p.up || p.down ? ` · ▲${p.up} ▼${p.down}` : ""}${k === 0 && s.now && p.id === s.now.id ? " · playing" : ""}</span></div>
+      </li>`).join("") : `<li class="empty-note">nothing played yet</li>`;
   }
   const log = $("#log");
   const lsig = JSON.stringify(s.events);

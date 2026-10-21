@@ -519,12 +519,44 @@ h3, h4 { margin: 0; font-weight: 500; text-transform: lowercase; letter-spacing:
 #upnext .m { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
 #log li { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #log li b { color: var(--orange); font-weight: 500; margin-right: 6px; }
+/* play history: time, title, style (and votes if any) */
+#played li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 9px; padding: 5px 0; border-top: 1px solid #ecebe6; }
+#played li:first-child { border-top: 0; }
+#played b { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--orange); padding-top: 2px; min-width: 9ch; }
+#played .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#played .m { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
+#played li.now .t { font-weight: 600; }
+/* add-a-track pop-up: the same label-maker card, over the page */
+.add-dialog { width: min(360px, calc(100vw - 32px)); border: 0; padding: 14px 16px 12px; color: var(--ink); }
+.add-dialog::backdrop { background: rgba(40, 42, 45, .35); }
+.add-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.add-head h4 { margin: 0 0 0 2px; }
+.add-close { border: 0; background: none; font-size: 20px; line-height: 1; color: var(--ink-soft); cursor: pointer; padding: 0 2px; }
+/* feedback pop-up */
+.fb-dialog { width: min(420px, calc(100vw - 32px)); }
+.fb-now { margin: 0 0 9px 2px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
+.fb-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.fb-tag { border: 0; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 11.5px; letter-spacing: .03em; color: var(--ink);
+  background: linear-gradient(180deg, #fafaf8, #dcdcd9); box-shadow: 0 2px 0 #a4a7a9, inset 0 1px 0 #fff; }
+.fb-tag.on { background: linear-gradient(180deg, #ff8a55, var(--orange)); color: #fff; box-shadow: 0 2px 0 #b8410d; }
+.fb-tag:active { transform: translateY(1px); }
+.fb-dialog textarea { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #d9d8d2; background: #fff; font: inherit; font-size: 13px; resize: vertical; }
+.fb-recent-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 12px; border-top: 1px solid #ecebe6; padding-top: 10px; }
+.fb-recent-head h4 { margin: 0 0 0 2px; }
+.fb-recent { margin: 6px 0 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.fb-recent li { padding: 5px 0; border-top: 1px solid #f0efea; font-size: 12px; }
+.fb-recent li:first-child { border-top: 0; }
+.fb-recent b { font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--orange); margin-right: 6px; }
+.fb-recent .m { display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-soft); }
 form { display: grid; gap: 7px; }
 form input, form select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #d9d8d2; background: #fff; font-size: 13px; }
 form .row { display: flex; gap: 7px; }
 .hint { margin: 2px 0 0; font-size: 11px; color: var(--ink-soft); }
 .hint code { font-family: var(--mono); font-size: 10.5px; }
 .hint.err { color: #c43d0a; min-height: 1em; }
+.hint.ok { color: #1f9d5c; font-weight: 600; }
+.fb-recent li.just-sent { background: #eafaf0; border-radius: 4px; }
+.fb-dialog button[type="submit"]:disabled { opacity: .7; cursor: default; }
 .empty-note { color: var(--ink-soft); font-size: 12px; }
 
 .foot { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 22px; }
@@ -538,10 +570,22 @@ form .row { display: flex; gap: 7px; }
   .genre-rows { column-gap: 18px; }
 }
 @media (max-width: 1020px) {
-  .device { grid-template-columns: minmax(0, 1fr) 260px; grid-template-areas: "screen enc" "keys keys" "rooms rooms"; }
-  .brand { display: none; }
+  /* narrower window: keep the grille and wordmark, in a slimmer column, rather than hiding them */
+  .device { grid-template-columns: 112px minmax(0, 1fr) 240px; grid-template-areas: "brand screen enc" "keys keys keys" "rooms rooms rooms"; }
+  .brand { gap: 8px; }
+  .grille { min-height: 80px; }
+  .wordmark { font-size: 26px; }
+  .model { font-size: 9.5px; }
+  .gkey { width: 58px; }
+  .genre-rows .gsub:last-child .gkey { min-width: 58px; }
+  .gkey em { max-width: 54px; font-size: 9.5px; }
+}
+@media (min-width: 721px) and (max-width: 880px) {
+  /* tablet portrait: the screen keeps its width, the faders sit under it, the grille stays on the left */
+  .device { grid-template-columns: 104px minmax(0, 1fr); grid-template-areas: "brand screen" "brand enc" "keys keys" "rooms rooms"; }
 }
 @media (max-width: 720px) {
+  .brand { display: none; }  /* phones: no room for the grille column (wider screens keep it) */
   .stage { padding: 16px max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
 
   /* Screen: on a phone, scaling text with width makes it unreadable, so use fixed minimum sizes
@@ -578,7 +622,9 @@ form .row { display: flex; gap: 7px; }
   .side-switch { left: -11px; }
   .side-label { left: 3px; }
   .krow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .kgroup:not(.transport) .krow { grid-template-columns: repeat(3, minmax(0, 1fr)); }  /* weather, mood: 3 keys fill the row like genre */
+  .kgroup:not(.transport) .krow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kgroup.transport .krow { grid-template-columns: repeat(5, minmax(0, 1fr)); }  /* play, skip, love, not this, feedback */
+  .kgroup.transport .key { min-width: 0; }  /* weather, mood: 3 keys fill the row like genre */
   .key { width: auto; }
   .gsub-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }  /* 3 playlists, auto + 8 styles: full rows */
   .genre-rows { flex-direction: column; align-items: stretch; }
