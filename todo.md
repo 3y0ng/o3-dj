@@ -167,7 +167,7 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [x] 21 Oct staff feedback traced in Suno: Suno rewrites every prompt (Variety High let it drift: music box and jazz guitar
   in Ghibli Lofi, hammered dulcimer in Whimsy). Both Whimsy complaints were takes of the elven folk prompt, now dropped;
   Variety Normal, Whimsy Weirdness 30-45, extra excludes for Whimsy and Ghibli. Sidecars now keep `suno_style` (Suno's rewrite).
-- [ ] Remove the 20 elven-prompt Whimsy songs (sidecar `prompt` starts "gentle elven folk lament") on the DJ device after
+- [x] Remove the 20 elven-prompt Whimsy songs (sidecar `prompt` starts "gentle elven folk lament") on the DJ device after
   this merges: move them to `~/o3-dj-rejected/` and commit the removal from there. Whimsy keeps 22 songs.
 - [ ] Check that Variety Normal keeps takes on-style but still different, on the next batch.
 - [ ] 68 older sidecars (m4a, no genre tag) have no `suno_style`; Suno can't tell their A/B takes apart by length.
