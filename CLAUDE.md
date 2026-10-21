@@ -46,7 +46,8 @@ with no build step and **no external assets** (no web fonts or CDNs), because it
   per-song volume (`DJ.song_volume`, moved ≤`volume_step_per_song` at each song start; staff moves apply at once) and per-genre `volume_offset` (`DJ.genre_volume_offset`). Calibration fits energy
   without the band (`calibrate.defaults` energy busy/empty are 0).
 - Songs are committed in `library/<genre>/` (public repo, by the owner's choice; ~1.8 GB, so CI checks out without them).
-  Rejected songs are never committed: they live in `~/o3-dj-rejected/` and `data/removed-songs/`. After importing new songs
+  Rejected songs are never committed: they live in `~/o3-dj-rejected/` and `data/removed-songs/`. `suno_import.py unpack`
+  (and so `./dj.sh update`) leaves out any song found there (by file name or sidecar hash), so an old zip can't bring one back. After importing new songs
   on the DJ device, let the prefetcher smooth them, then commit them from there.
 - `suno/styles.json`: approved Suno prompts, BPM ranges, exclude lists and settings per style. Songs are made by hand in
   the Suno web app, titled "O3 <style label> <bpm>", then `tools/suno_import.py add|export|unpack` brings them into

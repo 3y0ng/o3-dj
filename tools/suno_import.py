@@ -174,14 +174,48 @@ def export(zip_path, library, log=print):
     return n
 
 
-def unpack(zip_path, library, log=print):
-    """Unpack a zip from export() into the library, skipping songs that are already there."""
-    added = skipped = 0
+# Songs taken out of the library live here (never deleted); unpacking an older zip must not bring them back.
+REJECTED_DIRS = [Path.home() / "o3-dj-rejected", config.DATA / "removed-songs"]
+
+
+def rejected_songs(dirs=None):
+    """(file stems, sidecar hashes) of every song in the rejected folders, e.g. {"suno-0c14674b61bd"}."""
+    stems, hashes = set(), set()
+    for d in REJECTED_DIRS if dirs is None else dirs:
+        for f in Path(d).rglob("suno-*") if Path(d).is_dir() else []:
+            stems.add(f.stem)
+            if f.suffix == ".json":
+                try:
+                    h = json.loads(f.read_text()).get("hash")
+                except (OSError, ValueError):
+                    h = None
+                if h:
+                    hashes.add(h)
+    return stems, hashes
+
+
+def unpack(zip_path, library, log=print, rejected=None):
+    """Unpack a zip from export() into the library, skipping songs that are already there and songs that were
+    rejected (moved to ~/o3-dj-rejected/ or data/removed-songs/), so an older zip can't bring them back."""
+    stems, hashes = rejected_songs(rejected)
+    added = skipped = refused = 0
     with zipfile.ZipFile(zip_path) as z:
-        for name in z.namelist():
+        names = z.namelist()
+        for name in names:  # a rejected song can also be recognised by its sidecar's hash (same song, other name)
+            rel = Path(name)
+            if rel.suffix == ".json" and rel.name.startswith("suno-") and hashes:
+                try:
+                    if json.loads(z.read(name)).get("hash") in hashes:
+                        stems.add(rel.stem)
+                except ValueError:
+                    pass
+        for name in names:
             rel = Path(name)
             if rel.is_absolute() or ".." in rel.parts or len(rel.parts) != 2 or not rel.name.startswith("suno-"):
                 continue  # only library/<style>/suno-* files
+            if rel.stem in stems:
+                refused += rel.suffix != ".json"
+                continue
             dst = library / rel
             if dst.exists():
                 skipped += dst.suffix != ".json"
@@ -190,7 +224,7 @@ def unpack(zip_path, library, log=print):
             with z.open(name) as src, open(dst, "wb") as out:
                 shutil.copyfileobj(src, out)
             added += dst.suffix != ".json"
-    log(f"added {added} songs to {library} ({skipped} already there)")
+    log(f"added {added} songs to {library} ({skipped} already there, {refused} rejected and left out)")
     return added
 
 
