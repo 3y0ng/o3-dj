@@ -8,16 +8,83 @@
 #   ./dj.sh log              follow the log (Ctrl-C stops following, not the DJ)
 #   ./dj.sh update [zip]     pull the latest code, add new Suno songs from the newest ~/Downloads/o3-music*.zip
 #                            (or the zip given), and restart the DJ if it's running
+#   ./dj.sh install          run it as a login service: starts when this Mac logs in (e.g. after a power cut)
+#                            and restarts if it crashes; start/stop/restart then drive the service
+#   ./dj.sh uninstall        remove the service (back to starting it by hand)
 
 cd "${0:A:h}" || exit 1
 PY=.venv/bin/python
 PIDFILE=data/server.pid
 LOG=data/server.log
 PORT=$(/usr/bin/python3 -c 'import json; print(json.load(open("config.json"))["port"])' 2>/dev/null || echo 8330)
+LABEL=space.o3.dj
+PLIST=~/Library/LaunchAgents/$LABEL.plist
+DOMAIN=gui/$(id -u)
+WAIT_SECS=300   # after a power cut, wait up to this long for the speakers and Wi-Fi to come back
 
 running() { [[ -f $PIDFILE ]] && kill -0 "$(<$PIDFILE)" 2>/dev/null }
+installed() { [[ -f $PLIST ]] }
+loaded() { launchctl print $DOMAIN/$LABEL >/dev/null 2>&1 }
+
+wait_up() {
+  for _ in {1..30}; do
+    sleep 0.5
+    curl -s -m 1 "http://localhost:$PORT/api/state" >/dev/null && return 0
+  done
+  return 1
+}
+
+# Foreground, for launchd. exec keeps the pid, so the PID file holds caffeinate (the DJ is its child).
+run() {
+  mkdir -p data
+  echo "\n=== service start $(date '+%Y-%m-%d %H:%M:%S') ===" >> $LOG
+  echo $$ > $PIDFILE
+  exec caffeinate -is $PY run.py --wait-for-speakers $WAIT_SECS >> $LOG 2>&1 < /dev/null
+}
+
+install() {
+  [[ -x $PY ]] || { echo "no $PY - create it: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; return 1; }
+  if running && ! loaded; then stop; fi   # a DJ started by hand: the service takes over
+  loaded && launchctl bootout $DOMAIN/$LABEL 2>/dev/null
+  mkdir -p ~/Library/LaunchAgents
+  # launchd starts with a bare PATH: add Homebrew's so ffmpeg/ffprobe are found
+  cat > $PLIST <<PLIST_END
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/zsh</string><string>$PWD/dj.sh</string><string>run</string></array>
+  <key>WorkingDirectory</key><string>$PWD</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+</dict>
+</plist>
+PLIST_END
+  launchctl bootstrap $DOMAIN $PLIST || { echo "launchctl couldn't load $PLIST"; return 1; }
+  echo "installed: the DJ now starts when this Mac logs in, and restarts if it stops."
+  echo "For power cuts also turn on System Settings > Energy > 'Start up automatically after a power failure'"
+  echo "and Users & Groups > 'Automatically log in as' this user."
+  wait_up && echo "O3 DJ running - http://localhost:$PORT" || echo "not answering yet (waiting for the speakers?) - ./dj.sh log"
+}
+
+uninstall() {
+  installed || { echo "not installed"; return 0; }
+  loaded && launchctl bootout $DOMAIN/$LABEL 2>/dev/null
+  rm -f $PLIST $PIDFILE
+  echo "uninstalled: the DJ is stopped and won't start at login. ./dj.sh start runs it by hand."
+}
 
 start() {
+  if installed; then
+    if loaded; then launchctl kickstart $DOMAIN/$LABEL; else launchctl bootstrap $DOMAIN $PLIST; fi
+    wait_up && echo "O3 DJ running (service) - http://localhost:$PORT" || echo "not answering yet (waiting for the speakers?) - ./dj.sh log"
+    return 0
+  fi
   if running; then echo "already running (pid $(<$PIDFILE)) - http://localhost:$PORT"; return 0; fi
   if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
     echo "port $PORT is already in use by another process (an older DJ in a terminal tab?):"
@@ -43,6 +110,13 @@ start() {
 }
 
 stop() {
+  if installed; then
+    # bootout, not kill (launchd would restart it). It starts again at the next login, or ./dj.sh start.
+    loaded && launchctl bootout $DOMAIN/$LABEL 2>/dev/null
+    rm -f $PIDFILE
+    echo "stopped (the service starts it again at the next login; ./dj.sh uninstall to stop that)"
+    return 0
+  fi
   if ! running; then echo "not running"; rm -f $PIDFILE; return 0; fi
   local pid=$(<$PIDFILE)
   pkill -TERM -P $pid 2>/dev/null   # the python server; caffeinate exits with it
@@ -90,5 +164,8 @@ case ${1:-status} in
   status)  if running; then echo "O3 DJ running (pid $(<$PIDFILE)) - http://localhost:$PORT"; state; else echo "not running"; fi ;;
   log)     tail -n 40 -f $LOG ;;
   update)  shift; update "$@" ;;
-  *)       echo "usage: ./dj.sh start [--mock] | stop | restart | status | log | update [zip]"; exit 1 ;;
+  run)     run ;;
+  install) install ;;
+  uninstall) uninstall ;;
+  *)       echo "usage: ./dj.sh start [--mock] | stop | restart | status | log | update [zip] | install | uninstall"; exit 1 ;;
 esac

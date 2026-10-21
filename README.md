@@ -173,12 +173,18 @@ and files in `library/` (they're played as they are; Suno downloads are levelled
 - **Someone plays Spotify on the speakers**: the DJ notices and stands down until you press play.
 - **Paused/stopped from the Sonos app**: the DJ respects it and waits for play.
 - **The DJ restarts**: it takes back its own queue and carries on, as long as the speaker is still playing it.
+- **Power cut**: if the DJ was on when the power went, it starts music again once the speakers answer (it waits
+  out quiet hours first). It leaves the music off if staff had paused it, and never plays over another app's music.
 - **Queue safety**: the DJ never removes the playing track or the next one (the Sonos pre-loads it), so mood changes
   take effect from the track after next. If the speaker jumps back to an old track, it skips forward to new music instead of replaying.
 
 The laptop has to stay on and awake. `./dj.sh start` runs the DJ in the background under `caffeinate`, independent of any
 terminal window (`./dj.sh status`, `log`, `restart`, `stop`; log in `data/server.log`). It also has to
 allow incoming connections if the firewall asks, so the speakers can fetch cached files.
+
+On the DJ device, `./dj.sh install` makes it a login service (launchd): it starts when the Mac logs in and restarts if it
+crashes, and `start`/`stop`/`restart` then drive the service (`./dj.sh uninstall` undoes it). For power cuts, also turn on
+System Settings > Energy > "Start up automatically after a power failure" and Users & Groups > "Automatically log in as".
 
 ## Adding music
 

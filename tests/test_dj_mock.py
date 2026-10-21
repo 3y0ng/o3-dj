@@ -391,6 +391,88 @@ def test_restart_does_not_adopt_when_something_else_is_playing(tmp_path):
     assert not b.adopt() and not b.running
 
 
+# -- restart after a power cut ----------------------------------------------------------
+
+def restarted(tmp_path, player, quiet=False):
+    """A new DJ on the same state file (the computer came back), outside quiet hours unless asked."""
+    b = make_dj(tmp_path, player)
+    b.quiet_now = lambda: quiet
+    return b
+
+
+def test_power_cut_starts_music_again(tmp_path):
+    a = make_dj(tmp_path)
+    started(a)
+    b = restarted(tmp_path, MockPlayer(track_seconds=1000))  # the speakers rebooted too: empty queue
+    assert b.resume() and not b.resuming
+    assert b.running and b.player.status()["state"] == "PLAYING"
+
+
+def test_power_cut_with_our_queue_stopped_starts_afresh(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    a = make_dj(tmp_path, player)
+    started(a)
+    player.stop()  # the speakers kept the queue but stopped
+    b = restarted(tmp_path, player)
+    assert b.resume()
+    assert b.running and not b.paused and player.status()["state"] == "PLAYING"
+
+
+def test_restart_while_speakers_keep_playing_carries_on(tmp_path):
+    player = MockPlayer(track_seconds=1000)
+    a = make_dj(tmp_path, player)
+    started(a)
+    now, upcoming = a.now_id, list(a.upcoming)
+    b = restarted(tmp_path, player)
+    assert b.resume()
+    assert b.running and b.now_id == now and b.upcoming == upcoming  # adopted, not restarted
+
+
+def test_power_cut_leaves_music_off_if_staff_had_paused(tmp_path):
+    a = make_dj(tmp_path)
+    started(a)
+    a.pause(); a.save()
+    b = restarted(tmp_path, MockPlayer(track_seconds=1000))
+    assert b.resume()
+    assert not b.running and b.player.status()["state"] == "STOPPED"
+
+
+def test_power_cut_never_plays_over_someone_elses_music(tmp_path):
+    a = make_dj(tmp_path)
+    started(a)
+    player = MockPlayer(track_seconds=1000)
+    player.queue, player.index, player.state = [{"uri": "x-sonos-vli:spotify"}], 0, "PAUSED_PLAYBACK"
+    b = restarted(tmp_path, player)
+    assert b.resume()
+    assert not b.running and player.status()["state"] == "PAUSED_PLAYBACK"
+
+
+def test_power_cut_in_quiet_hours_waits_for_them_to_end(tmp_path):
+    a = make_dj(tmp_path)
+    started(a)
+    a.store.data["quiet_paused"] = True; a.pause(); a.save()  # quiet hours had paused it: not staff
+    b = restarted(tmp_path, MockPlayer(track_seconds=1000), quiet=True)
+    assert not b.resume() and b.resuming and not b.running
+    b.save()
+    assert b.store.data["running"]  # still due to resume if the power goes again
+    b.quiet_now = lambda: False
+    assert b.resume() and b.running and b.player.status()["state"] == "PLAYING"
+
+
+def test_power_cut_retries_until_the_speakers_answer(tmp_path):
+    a = make_dj(tmp_path)
+    started(a)
+    player = MockPlayer(track_seconds=1000)
+    b = restarted(tmp_path, player)
+    real = player.status
+    player.status = lambda: (_ for _ in ()).throw(ConnectionError("No route to host"))
+    with pytest.raises(ConnectionError):
+        b.resume()
+    assert b.resuming and not b.running
+    player.status = real
+    assert b.resume() and b.running
+
+
 def test_skip_mid_transition_does_not_cascade(dj, monkeypatch):
     """Seen live: after a skip, Sonos briefly reports the new position with the old URI.
     The DJ must not drop the starting track and then 'jump back' past it."""

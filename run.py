@@ -5,8 +5,11 @@
 """
 
 import argparse
+import json
 import logging
+import socket
 import threading
+import time
 
 from o3dj import config
 from o3dj.analysis import Meta
@@ -17,12 +20,42 @@ from o3dj.player import MockPlayer, SonosPlayer
 from o3dj.server import create_app
 
 
+def answers(ip):
+    try:
+        socket.create_connection((ip, 1400), timeout=2).close()
+        return True
+    except OSError:
+        return False
+
+
+def wait_for_speakers(ips, secs, discover):
+    """Wait until any speaker answers, up to `secs`: one of `ips` (the configured main room, the one chosen on the
+    controller), or any found by `discover()` in case the router gave them new addresses. Carries on either way."""
+    ips = [ip for ip in dict.fromkeys(ips) if ip]
+    print(f"Waiting for the speakers ({', '.join(ips) or 'any'})...", flush=True)
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        if any(answers(ip) for ip in ips):
+            return True
+        try:
+            if discover():
+                return True
+        except Exception:
+            pass
+        time.sleep(5)
+    print(f"  no speaker answered after {secs}s - starting anyway", flush=True)
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mock", action="store_true", help="simulate speakers")
     ap.add_argument("--speaker", help="IP of the main Sonos room (overrides config)")
     ap.add_argument("--port", type=int)
     ap.add_argument("--no-prefetch", action="store_true", help="don't cache or analyse tracks")
+    ap.add_argument("--wait-for-speakers", type=int, metavar="SECS", default=0,
+                    help="first wait up to SECS for the main room to answer (after a power cut the speakers "
+                         "and Wi-Fi come back slower than this computer)")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,7 +68,12 @@ def main():
     if args.mock:
         player = MockPlayer(cfg["mock_track_seconds"])
     else:
-        player = SonosPlayer(args.speaker or cfg.get("coordinator_ip"), cfg.get("crossfade", True))
+        ip = args.speaker or cfg.get("coordinator_ip")
+        player = SonosPlayer(ip, cfg.get("crossfade", True))
+        if args.wait_for_speakers:
+            state = config.DATA / "state.json"
+            chosen = json.loads(state.read_text()).get("main_room") if state.exists() else None
+            wait_for_speakers([ip, chosen], args.wait_for_speakers, lambda: player.soco.discover(timeout=3))
         print("Looking for Sonos speakers...")
         print(f"  found {player.discover()} room(s)")
 
