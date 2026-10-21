@@ -94,8 +94,10 @@ Still open:
 - [ ] **Access control.** Anyone on the Wi-Fi can open the controller. Check whether customers share this network
   (the speakers are on 192.168.0.x/1.x). Minimum: a staff PIN; better: sign-in tied to the O3 app.
 - [ ] **Staff view vs admin view.** Staff: now playing, up next, 👍 / 👎 / skip, "quieter please". Admin: knobs, rooms, genres.
-- [ ] **Run as a service.** launchd job with auto-restart, `caffeinate` so the laptop doesn't sleep (the speakers stream
-  cached files from it), log to file. Longer term, a dedicated box (Mac mini / Raspberry Pi) per venue.
+- [x] **Run as a service.** `./dj.sh install`: launchd login service with auto-restart, under `caffeinate`, waits up to
+  5 min for the speakers at boot, and starts music again after a power cut (`DJ.resume`). Still to do on the cafe Mac mini:
+  run `./dj.sh install`, turn on "Start up automatically after a power failure" and auto-login, and check that the
+  service gets the Local Network permission (a power-cut test at a quiet time).
 - [x] **Resume after a restart.** Done (see bugs).
 - [ ] Real web server (waitress/gunicorn) instead of Flask's dev server.
 - [ ] Rate-limit skips/downvotes per person (there's only a global 3 s double-tap guard), so one person can't skip the whole playlist.

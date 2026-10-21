@@ -62,6 +62,9 @@ class DJ:
         self.votes = self.store.data.setdefault("votes", {})
         self.history = deque(self.store.data.get("history", []), maxlen=200)
         self.was_running = bool(self.store.data.get("running"))
+        # paused by staff (not by quiet hours) when it went down: a restart leaves the music off
+        self.paused_at_exit = bool(self.store.data.get("paused")) and not self.store.data.get("quiet_paused")
+        self.resuming = self.was_running  # until resume() has run (see run)
         self.mode = self.store.data.get("mode", "demo")  # demo: manual atmosphere; live: feeds
         self.live = Live(cfg)
         self._last_effective = None
@@ -147,7 +150,8 @@ class DJ:
     def save(self):
         self.store.data["inputs"] = self.inputs.to_dict()
         self.store.data["history"] = list(self.history)
-        self.store.data["running"] = self.running
+        self.store.data["running"] = self.running or self.resuming  # still due to resume after a restart
+        self.store.data["paused"] = self.paused
         self.store.data["mode"] = self.mode
         self.store.save()
 
@@ -591,6 +595,30 @@ class DJ:
             self.upcoming = [x for x in ids[i + 1:] if x]
             self.status = st
             self.event(f"picked up where it left off: {self.title(ids[i])}")
+            return True
+
+    def resume(self):
+        """After a restart (a power cut, a crash, an update): take back our own queue, and if the DJ was
+        playing when it went down, get music going again. Never over someone else's music, never if staff
+        had paused it, and not during quiet hours. Returns False (and stays `resuming`) to be called again
+        later: the speakers aren't answering yet (they boot slower than this computer) or it's quiet hours."""
+        with self.lock:
+            if self.running or not self.was_running:  # running: staff pressed play in the meantime
+                self.resuming = False
+                return True
+            if self.quiet_now() and not self.paused_at_exit:
+                return False
+            st = self.player.status()  # raises while the speakers are still starting up
+            self.resuming = False
+            if self.adopt():
+                if not self.paused or self.paused_at_exit:
+                    return True  # the speakers kept playing our queue, or staff had paused it
+            elif self.paused_at_exit or (st["uri"] and not urlparse(st["uri"]).path.startswith("/media/")):
+                return True  # paused by staff, or someone else's music: leave it (adopt stood down)
+            # Our queue, stopped (the speakers lost power too), or an empty queue: start afresh rather
+            # than resume the old queue, whose links may carry this computer's old address.
+            self.start()
+            self.event("back after a restart - music back on")
             return True
 
     # -- inputs --------------------------------------------------------------------
@@ -1089,14 +1117,17 @@ class DJ:
         threading.Thread(target=run, daemon=True, name="fade-pause").start()
 
     def run(self, interval=2.0):
-        try:
-            self.adopt()
-        except Exception:
-            log.exception("couldn't adopt existing queue")
         n = 0
         while True:
+            if self.resuming and n % 15 == 0:  # about every 30 s until it has resumed (or decided not to)
+                try:
+                    self.resume()
+                except Exception as e:
+                    log.warning("couldn't resume yet: %s", e)
             try:
                 self.tick(n)
+                if self.store.data.get("paused") != self.paused and not self.wizard:
+                    self.save()  # remember a pause (from here or the Sonos app) in case of a power cut
                 self.player.error = None
             except Exception as e:
                 msg = str(e)

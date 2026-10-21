@@ -6,7 +6,9 @@
 
 import argparse
 import logging
+import socket
 import threading
+import time
 
 from o3dj import config
 from o3dj.analysis import Meta
@@ -17,12 +19,29 @@ from o3dj.player import MockPlayer, SonosPlayer
 from o3dj.server import create_app
 
 
+def wait_for(ip, secs):
+    """Wait until the speaker at `ip` answers (its control port), up to `secs`. Carries on either way."""
+    print(f"Waiting for the speaker at {ip}...", flush=True)
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        try:
+            socket.create_connection((ip, 1400), timeout=2).close()
+            return True
+        except OSError:
+            time.sleep(5)
+    print(f"  no answer from {ip} after {secs}s - starting anyway", flush=True)
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mock", action="store_true", help="simulate speakers")
     ap.add_argument("--speaker", help="IP of the main Sonos room (overrides config)")
     ap.add_argument("--port", type=int)
     ap.add_argument("--no-prefetch", action="store_true", help="don't cache or analyse tracks")
+    ap.add_argument("--wait-for-speakers", type=int, metavar="SECS", default=0,
+                    help="first wait up to SECS for the main room to answer (after a power cut the speakers "
+                         "and Wi-Fi come back slower than this computer)")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,7 +54,10 @@ def main():
     if args.mock:
         player = MockPlayer(cfg["mock_track_seconds"])
     else:
-        player = SonosPlayer(args.speaker or cfg.get("coordinator_ip"), cfg.get("crossfade", True))
+        ip = args.speaker or cfg.get("coordinator_ip")
+        if args.wait_for_speakers and ip:
+            wait_for(ip, args.wait_for_speakers)
+        player = SonosPlayer(ip, cfg.get("crossfade", True))
         print("Looking for Sonos speakers...")
         print(f"  found {player.discover()} room(s)")
 

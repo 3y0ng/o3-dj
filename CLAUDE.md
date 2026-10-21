@@ -11,6 +11,7 @@ python3 run.py             # REAL speakers in a working cafe; see safety below
 python3 -m pytest -q       # tests; no network or speakers needed
 ./dj.sh start|stop|restart|status|log   # live server in the background (own session + caffeinate), log in data/server.log
 ./dj.sh update [zip]       # on the DJ device: git pull, unpack the newest ~/Downloads/o3-music*.zip, restart if running
+./dj.sh install|uninstall  # on the DJ device: launchd login service (starts at login, restarts on crash, resumes after a power cut)
 node --check web/app.js     # controller JS syntax; CI (.github/workflows/tests.yml) runs both on every push and PR
 ```
 
