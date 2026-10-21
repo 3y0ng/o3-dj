@@ -5,11 +5,12 @@
  "style": "whimsy_fantasy",
  "bpm": 72,
  "vocals": false,
- "prompt": "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe, 72 bpm, instrumental",
+ "prompt": "gentle elven folk lament, harp, cello, hammered dulcimer, misty and bittersweet, cosy cafe, 72 bpm, instrumental",
  "plan": "pro",
  "commercial": true,
  "gain_db": 0.0,
  "hash": "3aafc522ba5d",
  "imported_from": "O3 Whimsy Fantasy 72 D.mp3",
- "created": "2026-10-10T13:15:31+00:00"
+ "created": "2026-10-10T13:15:31+00:00",
+ "suno_style": "Elven folk instrumental, unhurried 72 bpm sway, warm tape saturation, harp arpeggios over sustained cello and delicate hammered dulcimer tones, misty bittersweet café ambience."
 }

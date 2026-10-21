@@ -164,6 +164,13 @@ genre BPM ranges + tempo matching, Suno sidecars, Chillify fallback while a Suno
 - [x] A genre staff switch on plays as chosen even with few songs; only genres the moods matrix adds fall back to Chillify.
 - [x] Electronic Lofi (6 Oct, "Cloudy Afternoon Soul") added to clear afternoons at 30% (Ghibli Lofi 50%, Whimsy Fantasy 20%).
 - [ ] Try classical and Ghibli-style music as extra genres.
+- [x] 21 Oct staff feedback traced in Suno: Suno rewrites every prompt (Variety High let it drift: music box and jazz guitar
+  in Ghibli Lofi, hammered dulcimer in Whimsy). Both Whimsy complaints were takes of the elven folk prompt, now dropped;
+  Variety Normal, Whimsy Weirdness 30-45, extra excludes for Whimsy and Ghibli. Sidecars now keep `suno_style` (Suno's rewrite).
+- [ ] Remove the 20 elven-prompt Whimsy songs (sidecar `prompt` starts "gentle elven folk lament") on the DJ device after
+  this merges: move them to `~/o3-dj-rejected/` and commit the removal from there. Whimsy keeps 22 songs.
+- [ ] Check that Variety Normal keeps takes on-style but still different, on the next batch.
+- [ ] 68 older sidecars (m4a, no genre tag) have no `suno_style`; Suno can't tell their A/B takes apart by length.
 - [ ] Busy afternoons: staff want more upbeat, but the 70–90% band lowers energy/BPM. Decide which wins.
 - [ ] Future: generate music on the fly for the current slot; more parameters (key, instruments); lighting / further mood control.
 

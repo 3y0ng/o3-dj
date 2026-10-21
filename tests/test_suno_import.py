@@ -91,3 +91,15 @@ def test_unpack_finds_the_newest_zip(tmp_path):
     (tmp_path / "other.zip").write_bytes(b"PK")
     assert si.newest_zip(tmp_path) == new
     assert si.newest_zip(tmp_path / "missing") is None
+
+
+def test_records_sunos_rewrite_and_the_prompt_it_came_from(tmp_path, monkeypatch):
+    rewrite = "Lo-fi, ghibli touch, late-night organic deep house beats, moody analog synths, minor key, 110 BPM"
+    monkeypatch.setattr(si, "suno_style", lambda path: rewrite)
+    dl, lib = tmp_path / "Downloads", tmp_path / "library"
+    dl.mkdir()
+    saved = si.add([song(dl, "O3 Electronic Lofi 110.mp3")], STYLES, lib, CFG, normalise=False, log=quiet)
+    side = json.loads(saved[0].with_suffix(".json").read_text())
+    assert side["suno_style"] == rewrite
+    assert side["prompt"].startswith("ghibli lofi touch, late-night organic deep house")  # the second of its prompts
+    assert si.sent_prompt(STYLES["styles"]["jazzhop"], "") == STYLES["styles"]["jazzhop"]["prompt"]

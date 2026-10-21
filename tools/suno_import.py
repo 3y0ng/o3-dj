@@ -16,7 +16,8 @@ Titles: name each song "O3 <style label> <bpm>", e.g. "O3 Bossa Nova 128". `add`
 the style's range).
 
 `add` copies each file to library/<style>/suno-<hash>.<ext> with a sidecar .json (the DJ reads BPM, vocals and the
-licence from it) and levels its loudness. Files already in the library are skipped, so running it twice is safe.
+licence from it) and levels its loudness. Suno rewrites the Styles text before generating; the sidecar keeps that
+rewrite as `suno_style` (from the MP3's genre tag) and `prompt` is whichever of the style's prompts it came from. Files already in the library are skipped, so running it twice is safe.
 Only songs made on a paid Suno plan (Pro/Premier) may be played in the cafe: --plan defaults to pro.
 """
 
@@ -25,6 +26,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 from datetime import datetime, timezone
@@ -83,6 +85,41 @@ def known_hashes(library):
     return out
 
 
+def suno_style(path):
+    """The style text Suno actually generated from. Suno rewrites the Styles box into its own longer description
+    before generating, and puts that in the downloaded MP3's genre tag. "" if the file has none."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags=genre", "-of",
+                              "default=nw=1:nk=1", str(path)], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip()
+
+
+def sent_prompt(st, suno):
+    """Which of the style's prompts this song was made from: the one sharing the most words with Suno's rewrite."""
+    prompts = (st.get("prompts") or [st["prompt"]]) + st.get("minor_prompts", [])
+    words = set(re.findall(r"[a-z]{4,}", suno.lower()))
+    return max(prompts, key=lambda p: len(words & set(re.findall(r"[a-z]{4,}", p.lower())))) if words else st["prompt"]
+
+
+def backfill(library, log=print):
+    """Add suno_style (from each file's genre tag) to sidecars that don't have it. Returns how many changed."""
+    n = 0
+    for side in sorted(library.glob("*/suno-*.json")):
+        data = json.loads(side.read_text())
+        audio = next((f for f in side.parent.glob(side.stem + ".*") if f.suffix.lower() in AUDIO_EXTS), None)
+        if "suno_style" in data or not audio:
+            continue
+        style = suno_style(audio)
+        if style:
+            data["suno_style"] = style
+            side.write_text(json.dumps(data, indent=1, ensure_ascii=False))
+            n += 1
+    log(f"{n} sidecars got suno_style")
+    return n
+
+
 def add(files, styles, library, cfg, style=None, bpm=None, plan="pro", normalise=True, log=print):
     """Copy downloaded songs into the library with sidecars. Returns the new paths."""
     from suno_generate import level, tags_for
@@ -106,12 +143,15 @@ def add(files, styles, library, cfg, style=None, bpm=None, plan="pro", normalise
         out.mkdir(parents=True, exist_ok=True)
         dst = out / f"suno-{h}{f.suffix.lower()}"
         shutil.copy2(f, dst)
+        suno = suno_style(dst)
         gain = level(dst, cfg) if normalise else 0.0
         instrumental = st.get("vocals") is False
         side = {"source": "suno", "title": f.stem, "genre": key, "style": key, "bpm": tempo,
-                "vocals": not instrumental, "prompt": tags_for(st, tempo), "plan": plan,
+                "vocals": not instrumental, "prompt": tags_for({**st, "prompt": sent_prompt(st, suno)}, tempo), "plan": plan,
                 "commercial": plan.lower() in PAID_PLANS, "gain_db": gain, "hash": h, "imported_from": f.name,
                 "created": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        if suno:
+            side["suno_style"] = suno
         dst.with_suffix(".json").write_text(json.dumps(side, indent=1, ensure_ascii=False))
         seen.add(h)
         saved.append(dst)
@@ -172,6 +212,7 @@ def main():
     e.add_argument("zip", nargs="?")
     u = sub.add_parser("unpack", help="unpack a zip from export into this device's library (default: newest in ~/Downloads)")
     u.add_argument("zip", nargs="?")
+    sub.add_parser("backfill", help="add suno_style (Suno's rewrite of the prompt, from the MP3 tag) to existing sidecars")
     args = ap.parse_args()
 
     styles = json.loads(STYLES.read_text())
@@ -180,6 +221,8 @@ def main():
         cfg = config.load()
         saved = add(args.files, styles, library, cfg, args.style, args.bpm, args.plan, not args.no_level)
         print(f"\n{len(saved)} added. Next: python3 tools/suno_import.py export o3-music.zip")
+    elif args.cmd == "backfill":
+        backfill(library)
     elif args.cmd == "export":
         z = Path(args.zip) if args.zip else Path.home() / "Downloads" / f"o3-music-{datetime.now():%Y-%m-%d}.zip"
         export(z, library)

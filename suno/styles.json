@@ -47,7 +47,15 @@
         "https://www.youtube.com/watch?v=N3ur5Ey21zg",
         "https://www.youtube.com/watch?v=rt1mRnRp79A"
       ],
-      "notes": "Tried 30 Sep: no rap / no voices; needs to be more upbeat for the busy afternoon. 98 bpm tech house was too fast; four-on-the-floor kicks feel anxious."
+      "notes": "Tried 30 Sep: no rap / no voices; needs to be more upbeat for the busy afternoon. 98 bpm tech house was too fast; four-on-the-floor kicks feel anxious. 21 Oct: 88 D (Suno added a music-box melody and synth chords: 'wrong style') and 88 C (jazz guitar and rainstick; sang 'bum bum sun sun' despite Instrumental) flagged. Extra excludes added on top of the shared list.",
+      "exclude": [
+        "music box",
+        "chiptune",
+        "synth lead",
+        "scat",
+        "humming",
+        "chanting"
+      ]
     },
     "whimsy_fantasy": {
       "label": "Whimsy Fantasy",
@@ -61,11 +69,10 @@
       "references": [
         "https://www.youtube.com/watch?v=_QqabGYTSpQ"
       ],
-      "notes": "Tried 5 Oct: whimsy and bright celtic-orchestral prompts missed (too bright, not mellow). Inspired by the Frieren soundtrack: cello, harp, fantasy folk instruments, nostalgic. Variants D (celtic) and F (elven folk, dulcimer) approved; flute is fine here. Made with Weirdness 55 / Style Influence 70 / Variety High.",
+      "notes": "Tried 5 Oct: whimsy and bright celtic-orchestral prompts missed (too bright, not mellow). Inspired by the Frieren soundtrack: cello, harp, fantasy folk instruments, nostalgic. Variants D (celtic) and F (elven folk, dulcimer) approved; flute is fine here. Made with Weirdness 55 / Style Influence 70 / Variety High. 21 Oct: dropped the elven folk lament prompt (harp, cello, hammered dulcimer): both Whimsy complaints (74 B 'who is singing, what language', 76 C 'medieval markets, Roblox theme park') were elven takes. Celtic prompt only; medieval/dulcimer/vocal-ish words excluded; Weirdness capped at 45 (74 B was made at 62).",
       "duration": "5:00-6:00",
       "prompts": [
-        "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe",
-        "gentle elven folk lament, harp, cello, hammered dulcimer, misty and bittersweet, cosy cafe"
+        "melancholic celtic fantasy, cello and harp, slow and nostalgic, quiet journey, cosy cafe"
       ],
       "exclude_only": [
         "vocals",
@@ -82,11 +89,18 @@
         "EDM",
         "drop",
         "build-up",
-        "distortion"
+        "distortion",
+        "medieval",
+        "renaissance faire",
+        "hammered dulcimer",
+        "dulcimer",
+        "humming",
+        "chant",
+        "vocalise"
       ],
       "suno_settings": {
         "style_influence": 70,
-        "variety": "High"
+        "variety": "Normal"
       }
     },
     "indie_lofi_fantasy": {
@@ -224,7 +238,7 @@
       "vocals": false
     }
   },
-  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt. Aim for 3:30-4:30 songs (Duration: Custom in More Options) to get more music per download: Premier allows 60 downloads a month. Songs already approved stay.",
+  "_shared": "Keep prompts short: the style, then chill/cosy cafe; the generator adds a BPM from the range and 'instrumental'. No voices, no flute, no four-on-the-floor kicks; `exclude` is sent as Suno's Exclude styles. Tried 5 Oct: Weirdness 65 / Style Influence 60 / Variety High gives clearly different takes on the same prompt. Aim for 3:30-4:30 songs (Duration: Custom in More Options) to get more music per download: Premier allows 60 downloads a month. Songs already approved stay. 21 Oct: Suno rewrites the Styles text into its own longer description before generating (the song's description and the MP3's genre tag show the rewrite), and Variety High let it wander off-style (music box, jazz guitar, dulcimer). Use Variety Normal from now on and check the rewrite names our style. The wand next to Styles is a one-off 'personalize this prompt' action, not a setting: don't press it.",
   "exclude": [
     "vocals",
     "rap",
@@ -248,6 +262,10 @@
       30,
       65
     ],
-    "_about": "Change Weirdness on every generation, spread across 30-65 for every style, so takes differ. 50 is Suno's default; 0 is the most typical take of the prompt and 100 the most experimental. Tested 10 Oct on Electronic Lofi at 20 / 50 / 80: 80 was too much. Style Influence stays at the style's value."
+    "_about": "Change Weirdness on every generation, spread across 30-65 for every style, so takes differ. 50 is Suno's default; 0 is the most typical take of the prompt and 100 the most experimental. Tested 10 Oct on Electronic Lofi at 20 / 50 / 80: 80 was too much. Style Influence stays at the style's value. A style key here overrides the default range (whimsy_fantasy: 30-45 since 21 Oct).",
+    "whimsy_fantasy": [
+      30,
+      45
+    ]
   }
 }
