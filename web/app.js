@@ -471,8 +471,7 @@ function initKeys() {
 const FB_WHO = "o3dj.feedback.who";
 function fbRecentHTML(rows) {
   return rows.length ? rows.map((r) => {
-    const when = new Date(r.at), today = when.toDateString() === new Date().toDateString();
-    const t = (today ? "" : when.toLocaleDateString(undefined, { weekday: "short" }) + " ") + r.at.slice(11, 16);
+    const t = `${r.at.slice(8, 10)}/${r.at.slice(5, 7)} ${r.at.slice(11, 16)}`;  // DD/MM HH:MM, cafe-local as stored
     const ctx = [r.song, r.volume_target != null ? "vol " + r.volume_target : "", r.occupancy != null ? r.occupancy + "% full" : ""].filter(Boolean).join(" · ");
     return `<li><b>${esc(t)}</b>${esc([r.tags.join(", "), r.note].filter(Boolean).join(" — "))}${r.who ? ` <span class="c-dim">(${esc(r.who)})</span>` : ""}<span class="m">${esc(ctx)}</span></li>`;
   }).join("") : `<li class="empty-note">no feedback yet</li>`;
