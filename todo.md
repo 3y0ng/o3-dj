@@ -65,6 +65,8 @@ Still open:
 - [x] Right after a skip, the stale Sonos status could get a track dropped from "up next" and queued twice. Up next now only advances
   on a real track change (500 randomised runs, 0 failures).
 - [ ] If a song is cut short anyway, resume it where it stopped (play its queue index + seek) instead of moving on.
+- [x] 22-28 Oct: 13 "ended early" lines, all 20-27 s from the end, were normal crossfade handovers (10-14 s from the end) seen late
+  because ticks missed the last readings. `_note_early_end` now adds the playing time since the last reading (pauses don't count).
 
 ## 2. Tuning (from how it was used)
 

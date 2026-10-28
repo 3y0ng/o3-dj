@@ -774,6 +774,28 @@ def test_song_ending_early_outside_the_dj_is_logged(dj, monkeypatch):
     assert any("ended early at 1:19 of 3:20" in e["msg"] and dj.title(first) in e["msg"] for e in dj.events)
 
 
+def test_a_normal_handover_after_missed_readings_is_not_logged_as_early(dj, monkeypatch):
+    started(dj, duration=200)
+    clock = [time.time() + 60]
+    monkeypatch.setattr(dj_mod.time, "time", lambda: clock[0])
+    at_elapsed(dj, 168); dj.tick(1)    # last reading 32 s from the end
+    clock[0] += 14                     # slow ticks (a room slow to answer) miss the next readings
+    dj.player.next()                   # the speaker's own crossfade handover, ~18 s from the end
+    dj.tick(2)
+    assert not any("ended early" in e["msg"] for e in dj.events)
+
+
+def test_next_pressed_after_a_long_pause_is_still_logged_as_early(dj, monkeypatch):
+    started(dj, duration=200)
+    clock = [time.time() + 60]
+    monkeypatch.setattr(dj_mod.time, "time", lambda: clock[0])
+    at_elapsed(dj, 79); dj.tick(1)
+    dj.player.pause(); clock[0] += 2; dj.tick(2)
+    clock[0] += 600; dj.tick(3)        # ten minutes paused: not playing time
+    dj.player.next(); clock[0] += 2; dj.tick(4)
+    assert any("ended early at 1:19 of 3:20" in e["msg"] for e in dj.events)
+
+
 def test_the_djs_own_skip_is_not_logged_as_early(dj):
     started(dj, duration=200)
     at_elapsed(dj, 79); dj.tick(1)

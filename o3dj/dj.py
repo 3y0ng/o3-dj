@@ -80,6 +80,7 @@ class DJ:
         self.now_id = None
         self.now_counted = False  # play recorded for now_id
         self.now_max_elapsed = 0  # furthest point now_id was seen playing
+        self.now_seen_at = 0      # when that was (time.time())
         self.upcoming = []       # track ids queued after the current one, in order
         self.uri_map = {}        # uri -> track id
         self.id_uri = {}         # track id -> uri it was queued with
@@ -549,7 +550,7 @@ class DJ:
         self.save()
 
     def _set_now(self, tid):
-        self.now_id, self.now_counted, self.now_max_elapsed = tid, False, 0
+        self.now_id, self.now_counted, self.now_max_elapsed, self.now_seen_at = tid, False, 0, 0
 
     def _count_play(self):
         if self.now_counted or not self.now_id:
@@ -632,7 +633,7 @@ class DJ:
                     self.uri_map[u], self.id_uri[tid] = tid, u
             self.running = True
             self.paused = st["state"] != "PLAYING"
-            self.now_id, self.now_counted, self.now_max_elapsed = ids[i], True, st["elapsed"]
+            self.now_id, self.now_counted, self.now_max_elapsed, self.now_seen_at = ids[i], True, st["elapsed"], time.time()
             self.upcoming = [x for x in ids[i + 1:] if x]
             self.status = st
             self.event(f"picked up where it left off: {self.title(ids[i])}")
@@ -1070,7 +1071,8 @@ class DJ:
             self.paused = False
         if cur is None or cur == self.now_id:
             if cur:
-                self.now_max_elapsed = max(self.now_max_elapsed, st["elapsed"])
+                if st["elapsed"] >= self.now_max_elapsed:
+                    self.now_max_elapsed, self.now_seen_at = st["elapsed"], time.time()
                 self._count_play()
             return False
         already_played = cur in {h["id"] for h in list(self.history)[-60:]}
@@ -1105,8 +1107,11 @@ class DJ:
             return
         dur = self.meta.duration(prev)
         reached = self.now_max_elapsed
+        # It kept playing after the last reading, possibly right up to the normal handover: when a slow tick
+        # (a room slow to answer) missed the last ~10 s, the last reading alone looked 20+ s early.
+        latest = reached + (time.time() - self.now_seen_at if self.now_seen_at else 0)
         margin = max(20, self.cfg.get("skip_crossfade_seconds", 0) + 12)  # crossfade + 2 s polling
-        if dur and reached >= 3 and reached + margin < dur:
+        if dur and reached >= 3 and latest + margin < dur:
             fmt = lambda x: f"{int(x) // 60}:{int(x) % 60:02d}"
             self.event(f"{self.title(prev)} ended early at {fmt(reached)} of {fmt(dur)} - not the DJ "
                        f"(Sonos app, a speaker button or a playback hiccup)")
@@ -1168,6 +1173,8 @@ class DJ:
                 return
             self.foreign_ticks = 0
 
+            if state != "PLAYING" and self.now_seen_at:
+                self.now_seen_at = time.time()  # not moving: a pause isn't playing time (_note_early_end)
             if state == "PLAYING":
                 self.stopped_ticks = 0
                 if self._on_playing(st, cur):
