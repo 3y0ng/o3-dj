@@ -65,6 +65,8 @@ Still open:
 - [x] Right after a skip, the stale Sonos status could get a track dropped from "up next" and queued twice. Up next now only advances
   on a real track change (500 randomised runs, 0 failures).
 - [ ] If a song is cut short anyway, resume it where it stopped (play its queue index + seek) instead of moving on.
+- [x] 30 Oct: sunny but the feed said "cloudy" (Open-Meteo code 2, partly cloudy), so the afternoon mood played Whimsy Fantasy ~44%
+  of the time (26 songs 12-17h, repeats from a 22-song pool). Partly cloudy now counts as clear unless cloud cover is 70%+.
 - [x] 22-28 Oct: 13 "ended early" lines, all 20-27 s from the end, were normal crossfade handovers (10-14 s from the end) seen late
   because ticks missed the last readings. `_note_early_end` now adds the playing time since the last reading (pauses don't count).
 

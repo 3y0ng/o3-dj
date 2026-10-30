@@ -14,6 +14,8 @@ def test_weather_codes_map_to_moods():
     assert weather_from(61) == "rain" and weather_from(95) == "rain" and weather_from(73) == "rain"
     assert weather_from(1, precipitation=0.5) == "rain"
     assert weather_from(1, cloud_cover=85) == "cloudy"
+    assert weather_from(2, cloud_cover=40) == "clear"   # partly cloudy: the sun is mostly out
+    assert weather_from(2, cloud_cover=75) == "cloudy"
 
 
 def test_postgrest_count_parsing():

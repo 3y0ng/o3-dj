@@ -18,7 +18,8 @@ UA = {"User-Agent": "o3-dj/0.1"}
 
 # WMO weather codes (Open-Meteo): https://open-meteo.com/en/docs
 RAIN_CODES = set(range(51, 68)) | set(range(71, 78)) | set(range(80, 87)) | set(range(95, 100))  # drizzle, rain, snow, showers, storms
-CLOUD_CODES = {2, 3, 45, 48}  # partly cloudy, overcast, fog
+# Partly cloudy (2) counts as clear: the sun is mostly out. A sky that is 70%+ cloud is still cloudy (cloud_cover).
+CLOUD_CODES = {3, 45, 48}  # overcast, fog
 
 
 def weather_from(code, precipitation=0.0, cloud_cover=0):
